@@ -1,5 +1,4 @@
 import asyncio
-import json
 import os
 import struct
 import time
@@ -14,7 +13,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db as dbmod
-from .notifications import send_notification
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -30,8 +28,6 @@ _approval_futures: dict[str, asyncio.Future] = {}
 _pending_by_domain: dict[tuple[str, str], asyncio.Future] = {}
 # WebSocket connections for the approvals feed
 _approval_sockets: list[WebSocket] = []
-# number of browser clients currently reporting window focus
-_browser_focused_count: int = 0
 # WebSocket connections for the sandbox list feed
 _sandbox_list_sockets: list[WebSocket] = []
 # persistent connections to per-sandbox PTY input sockets (cross-process)
@@ -196,8 +192,6 @@ async def request_approval(req: CheckRequest):
     msg = {"type": "approval_request", "approval_id": approval_id,
            "sandbox_id": req.sandbox_id, "domain": req.domain}
     await _broadcast(_approval_sockets, msg)
-    if _browser_focused_count == 0:
-        send_notification(f"Allow {req.domain}?", f"Sandbox {req.sandbox_id[:8]} wants to reach {req.domain}")
 
     loop = asyncio.get_event_loop()
     fut: asyncio.Future = loop.create_future()
@@ -358,27 +352,14 @@ async def terminal_ws(websocket: WebSocket, sandbox_id: str):
 
 @app.websocket("/ws/approvals")
 async def approvals_ws(websocket: WebSocket):
-    global _browser_focused_count
     await websocket.accept()
     _approval_sockets.append(websocket)
-    focused = False
     try:
         while True:
-            text = await websocket.receive_text()
-            try:
-                msg = json.loads(text)
-                if msg.get("type") == "focus":
-                    new_focused = bool(msg.get("focused"))
-                    if new_focused != focused:
-                        focused = new_focused
-                        _browser_focused_count += 1 if focused else -1
-            except Exception:
-                pass
+            await websocket.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
-        if focused:
-            _browser_focused_count -= 1
         try:
             _approval_sockets.remove(websocket)
         except ValueError:

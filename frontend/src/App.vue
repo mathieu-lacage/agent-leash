@@ -31,6 +31,15 @@ let listWs: WebSocket | null = null
 let approvalWs: WebSocket | null = null
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
+function notifyApproval(req: ApprovalRequest) {
+  if (document.hasFocus() || Notification.permission !== 'granted') return
+  const n = new Notification(`Allow ${req.domain}?`, {
+    body: `Sandbox ${req.sandbox_id.slice(0, 8)} wants network access`,
+    tag: `aleash-${req.domain}`,
+  })
+  n.onclick = () => { window.focus(); n.close() }
+}
+
 async function fetchSandboxes() {
   const r = await fetch('/api/sandboxes?running_only=true')
   sandboxes.value = await r.json()
@@ -65,22 +74,14 @@ function connectListWs() {
   listWs.onclose = () => setTimeout(connectListWs, 2000)
 }
 
-function sendFocus(focused: boolean) {
-  if (approvalWs?.readyState === WebSocket.OPEN)
-    approvalWs.send(JSON.stringify({ type: 'focus', focused }))
-}
-
-const onWindowFocus = () => sendFocus(true)
-const onWindowBlur  = () => sendFocus(false)
-
 function connectApprovalWs() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   approvalWs = new WebSocket(`${proto}://${location.host}/ws/approvals`)
-  approvalWs.onopen = () => sendFocus(document.hasFocus())
   approvalWs.onmessage = (ev) => {
     const msg = JSON.parse(ev.data)
     if (msg.type === 'approval_request') {
       pendingApprovals.value.push(msg)
+      notifyApproval(msg)
     }
   }
   approvalWs.onclose = () => setTimeout(connectApprovalWs, 2000)
@@ -94,15 +95,13 @@ onMounted(() => {
   fetchSandboxes()
   connectListWs()
   connectApprovalWs()
-  window.addEventListener('focus', onWindowFocus)
-  window.addEventListener('blur',  onWindowBlur)
+  if ('Notification' in window && Notification.permission === 'default')
+    Notification.requestPermission()
 })
 
 onUnmounted(() => {
   listWs?.close()
   approvalWs?.close()
-  window.removeEventListener('focus', onWindowFocus)
-  window.removeEventListener('blur',  onWindowBlur)
 })
 </script>
 

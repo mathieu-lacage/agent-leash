@@ -4,7 +4,7 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   build: {
-    outDir: '../src/sandbox/static',
+    outDir: '../src/aleash/static',
     emptyOutDir: true,
   },
   server: {

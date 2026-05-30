@@ -47,6 +47,9 @@ def start(port: int, foreground: bool):
     DAEMON_DIR.mkdir(parents=True, exist_ok=True)
 
     if foreground:
+        import subprocess
+        subprocess.Popen(["xdg-open", f"http://localhost:{port}/"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         _run_server(port)
     else:
         _daemonize(port)
@@ -68,6 +71,9 @@ def _daemonize(port: int):
         # parent: wait briefly for server to start, then return
         time.sleep(0.8)
         click.echo(f"Sandbox UI available on http://localhost:{port}/")
+        import subprocess
+        subprocess.Popen(["xdg-open", f"http://localhost:{port}/"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return
 
     # child: become daemon
