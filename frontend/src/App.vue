@@ -25,6 +25,27 @@ function notifyApproval(req: ApprovalRequest) {
   n.onclick = () => { window.focus(); n.close() }
 }
 
+let _notifTimer: ReturnType<typeof setTimeout> | null = null
+let _notifCount = 0
+let _notifLastTitle = ''
+let _notifLastBody = ''
+
+function maybeNotify(title: string, body: string) {
+  if (Notification.permission !== 'granted' || document.hasFocus()) return
+  _notifCount++
+  _notifLastTitle = title
+  _notifLastBody = body
+  if (_notifTimer) return
+  _notifTimer = setTimeout(() => {
+    const count = _notifCount
+    _notifCount = 0
+    _notifTimer = null
+    const t = count > 1 ? `${_notifLastTitle} (×${count})` : _notifLastTitle
+    const n = new Notification(t, { body: _notifLastBody, tag: 'aleash-notify' })
+    n.onclick = () => { window.focus(); n.close() }
+  }, 1500)
+}
+
 async function fetchCurrentSandbox() {
   const r = await fetch('/api/current-sandbox')
   const { id } = await r.json()
@@ -46,6 +67,8 @@ function connectApprovalWs() {
     if (msg.type === 'approval_request') {
       pendingApprovals.value.push(msg)
       notifyApproval(msg)
+    } else if (msg.type === 'notification') {
+      maybeNotify(msg.title, msg.body)
     }
   }
   approvalWs.onclose = () => setTimeout(connectApprovalWs, 2000)

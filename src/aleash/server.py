@@ -324,6 +324,17 @@ async def internal_terminal_resize(payload: TerminalResizePayload):
     return {"ok": True}
 
 
+class NotifyPayload(BaseModel):
+    title: str
+    body: str
+
+
+@app.post("/api/internal/notify")
+async def internal_notify(payload: NotifyPayload):
+    await _broadcast(_approval_sockets, {"type": "notification", "title": payload.title, "body": payload.body})
+    return {"ok": True}
+
+
 @app.post("/api/internal/sandbox-end")
 async def internal_sandbox_end(payload: SandboxEndPayload):
     global _current_sandbox_id

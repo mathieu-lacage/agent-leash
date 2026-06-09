@@ -310,7 +310,8 @@ async def run_sandbox(
 
         # stream PTY output; also relay local terminal if stdin is a TTY
         loop = asyncio.get_event_loop()
-        await _stream_pty(master_fd, sandbox_id, loop, interactive=os.isatty(0))
+        await _stream_pty(master_fd, sandbox_id, loop, interactive=os.isatty(0),
+                          server_url=server_url)
 
         exit_code = await proc.wait()
 
@@ -378,11 +379,24 @@ async def run_sandbox(
     return exit_code
 
 
+def _post_notify(sandbox_id: str, server_url: str) -> None:
+    import urllib.request as _r, json as _j
+    body = _j.dumps({"title": "Claude needs input",
+                     "body": f"Sandbox {sandbox_id[:8]} is waiting"}).encode()
+    req = _r.Request(f"{server_url}/api/internal/notify", data=body,
+                     headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        _r.urlopen(req, timeout=0.5)
+    except Exception:
+        pass
+
+
 async def _stream_pty(
     master_fd: int,
     sandbox_id: str,
     loop: asyncio.AbstractEventLoop,
     interactive: bool = False,
+    server_url: str = _DEFAULT_SERVER_URL,
 ) -> None:
     """
     Read PTY output → DB + WebSocket (+ local stdout when interactive).
@@ -432,17 +446,46 @@ async def _stream_pty(
 
     log_db = await aiosqlite.connect(dbmod.DB_PATH)
 
+    _IDLE_THRESHOLD = 4.0
+    _NOTIF_COOLDOWN = 30.0
+    last_notify_time = 0.0
+    last_data_time = time.time()
+
+    def _maybe_notify() -> None:
+        nonlocal last_notify_time
+        now = time.time()
+        if now - last_notify_time < _NOTIF_COOLDOWN:
+            return
+        last_notify_time = now
+        threading.Thread(target=_post_notify, args=(sandbox_id, server_url), daemon=True).start()
+
+    async def _idle_watcher() -> None:
+        while True:
+            await asyncio.sleep(1.0)
+            if time.time() - last_data_time >= _IDLE_THRESHOLD:
+                _maybe_notify()
+
+    idle_task = asyncio.create_task(_idle_watcher())
+
     try:
         while True:
             data = await read_queue.get()
             if data is None:
                 break
+            last_data_time = time.time()
+            if b'\x07' in data:
+                _maybe_notify()
             if interactive:
                 os.write(1, data)  # local stdout
             ts = int(time.time() * 1000)
             await dbmod.append_terminal_log(log_db, sandbox_id, ts, data)
             # server polls terminal_log directly; no in-process broadcast needed
     finally:
+        idle_task.cancel()
+        try:
+            await idle_task
+        except asyncio.CancelledError:
+            pass
         if old_term is not None:
             termios.tcsetattr(0, termios.TCSADRAIN, old_term)
         await log_db.close()
