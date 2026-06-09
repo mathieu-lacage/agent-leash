@@ -25,7 +25,7 @@ repos:
     hooks:
       - id: pyright
         name: Type checking for python
-        entry: uv run pyright
+        entry: uv run --frozen pyright
         language: system
         types: [python]
         pass_filenames: false
@@ -43,7 +43,7 @@ repos:
         pass_filenames: false
       - id: licensecheck
         name: License compatibility
-        entry: uv run licensecheck
+        entry: uv run --frozen licensecheck
         language: system
         pass_filenames: false
         stages: [pre-push]
