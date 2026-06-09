@@ -11,12 +11,16 @@ class ServiceDef:
     label: str
     description: str
     _resolve_fn: Callable[[], str | None] = field(repr=False)
-    _bwrap_fn: Callable[[str], tuple[list[tuple[str, str, str]], dict[str, str]]] = field(repr=False)
+    _bwrap_fn: Callable[[str], tuple[list[tuple[str, str, str]], dict[str, str]]] = (
+        field(repr=False)
+    )
 
     def resolve_socket(self) -> str | None:
         return self._resolve_fn()
 
-    def bwrap_args(self, socket: str) -> tuple[list[tuple[str, str, str]], dict[str, str]]:
+    def bwrap_args(
+        self, socket: str
+    ) -> tuple[list[tuple[str, str, str]], dict[str, str]]:
         return self._bwrap_fn(socket)
 
 
@@ -31,7 +35,8 @@ def _resolve_gpg_agent() -> str | None:
     try:
         result = subprocess.check_output(
             ["gpgconf", "--list-dirs", "agent-socket"],
-            stderr=subprocess.DEVNULL, text=True,
+            stderr=subprocess.DEVNULL,
+            text=True,
         ).strip()
         if result and Path(result).is_socket():
             return result
@@ -54,7 +59,7 @@ def _bwrap_gpg(socket: str) -> tuple[list[tuple[str, str, str]], dict[str, str]]
 def _resolve_docker() -> str | None:
     docker_host = os.environ.get("DOCKER_HOST", "")
     if docker_host.startswith("unix://"):
-        sock = docker_host[len("unix://"):]
+        sock = docker_host[len("unix://") :]
     elif docker_host and not docker_host.startswith("tcp://"):
         sock = docker_host
     else:

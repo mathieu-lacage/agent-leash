@@ -44,12 +44,20 @@ def _start_server_background(port: int):
 
 
 @click.group()
-@click.option("--profile", default=None, metavar="PROFILE", help="Override sandbox profile.")
-@click.option("--browser-master", is_flag=True, default=False, help="Let the browser control terminal size.")
+@click.option(
+    "--profile", default=None, metavar="PROFILE", help="Override sandbox profile."
+)
+@click.option(
+    "--browser-master",
+    is_flag=True,
+    default=False,
+    help="Let the browser control terminal size.",
+)
 @click.pass_context
 def main(ctx, profile, browser_master):
     """Sandbox runner for AI coding agents."""
     from . import db as _db
+
     _db.DB_PATH = Path.cwd() / ".aleash" / "data.db"
     ctx.ensure_object(dict)
     ctx.obj["profile"] = profile
@@ -61,12 +69,15 @@ def list_sandboxes():
     """List sandboxes."""
     import sqlite3
     from .db import DB_PATH
+
     if not DB_PATH.exists():
         click.echo("No sandboxes yet.")
         return
     with sqlite3.connect(str(DB_PATH)) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT * FROM sandboxes ORDER BY started_at DESC").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM sandboxes ORDER BY started_at DESC"
+        ).fetchall()
     if not rows:
         click.echo("No sandboxes yet.")
         return
@@ -75,18 +86,26 @@ def list_sandboxes():
         click.echo(f"{s['id'][:8]}  {status:12}  {s['profile']:10}  {s['cwd']}")
 
 
-def _run_agent(profile_name: str, extra_args: tuple, profile_override: str | None,
-               browser_master: bool = False):
+def _run_agent(
+    profile_name: str,
+    extra_args: tuple,
+    profile_override: str | None,
+    browser_master: bool = False,
+):
     from .profiles import PROFILES
     from .runner import run_sandbox
 
     profile_key = profile_override or profile_name
     if profile_key not in PROFILES:
-        click.echo(f"Unknown profile '{profile_key}'. Available: {', '.join(PROFILES)}", err=True)
+        click.echo(
+            f"Unknown profile '{profile_key}'. Available: {', '.join(PROFILES)}",
+            err=True,
+        )
         sys.exit(1)
     profile = PROFILES[profile_key]
 
     import shutil
+
     binary = shutil.which(profile_name)
     if not binary:
         click.echo(f"'{profile_name}' not found on PATH", err=True)
@@ -96,36 +115,61 @@ def _run_agent(profile_name: str, extra_args: tuple, profile_override: str | Non
     server = _start_server_background(port)
     click.echo(f"Sandbox UI available on http://localhost:{port}/")
     import subprocess
-    subprocess.Popen(["xdg-open", f"http://localhost:{port}/"],
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    subprocess.Popen(
+        ["xdg-open", f"http://localhost:{port}/"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     try:
-        exit_code = asyncio.run(run_sandbox(
-            profile=profile, cwd=os.getcwd(),
-            cmd=[binary, *extra_args], browser_master=browser_master,
-            server_url=f"http://localhost:{port}",
-        ))
+        exit_code = asyncio.run(
+            run_sandbox(
+                profile=profile,
+                cwd=os.getcwd(),
+                cmd=[binary, *extra_args],
+                browser_master=browser_master,
+                server_url=f"http://localhost:{port}",
+            )
+        )
     finally:
         server.should_exit = True
     sys.exit(exit_code)
 
 
-@main.command(context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+@main.command(
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True}
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def claude(ctx, extra_args):
     """Run claude in a sandbox."""
-    _run_agent("claude", extra_args, ctx.obj.get("profile"), ctx.obj.get("browser_master", False))
+    _run_agent(
+        "claude",
+        extra_args,
+        ctx.obj.get("profile"),
+        ctx.obj.get("browser_master", False),
+    )
 
 
-@main.command(context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+@main.command(
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True}
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def opencode(ctx, extra_args):
     """Run opencode in a sandbox."""
-    _run_agent("opencode", extra_args, ctx.obj.get("profile"), ctx.obj.get("browser_master", False))
+    _run_agent(
+        "opencode",
+        extra_args,
+        ctx.obj.get("profile"),
+        ctx.obj.get("browser_master", False),
+    )
 
 
-@main.command(name="run", context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+@main.command(
+    name="run",
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
 @click.argument("cmd", nargs=-1, type=click.UNPROCESSED, required=True)
 @click.pass_context
 def run_cmd(ctx, cmd):
@@ -135,21 +179,31 @@ def run_cmd(ctx, cmd):
 
     profile = ctx.obj.get("profile") or "generic"
     if profile not in PROFILES:
-        click.echo(f"Unknown profile '{profile}'. Available: {', '.join(PROFILES)}", err=True)
+        click.echo(
+            f"Unknown profile '{profile}'. Available: {', '.join(PROFILES)}", err=True
+        )
         sys.exit(1)
 
     port = _free_port()
     server = _start_server_background(port)
     click.echo(f"Sandbox UI available on http://localhost:{port}/")
     import subprocess
-    subprocess.Popen(["xdg-open", f"http://localhost:{port}/"],
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    subprocess.Popen(
+        ["xdg-open", f"http://localhost:{port}/"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     try:
-        exit_code = asyncio.run(run_sandbox(
-            profile=PROFILES[profile], cwd=os.getcwd(),
-            cmd=list(cmd), browser_master=ctx.obj.get("browser_master", False),
-            server_url=f"http://localhost:{port}",
-        ))
+        exit_code = asyncio.run(
+            run_sandbox(
+                profile=PROFILES[profile],
+                cwd=os.getcwd(),
+                cmd=list(cmd),
+                browser_master=ctx.obj.get("browser_master", False),
+                server_url=f"http://localhost:{port}",
+            )
+        )
     finally:
         server.should_exit = True
     sys.exit(exit_code)

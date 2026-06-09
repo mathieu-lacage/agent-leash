@@ -5,7 +5,6 @@ import struct
 import time
 import uuid
 from pathlib import Path
-from typing import Any
 
 import aiosqlite
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
@@ -59,7 +58,13 @@ async def shutdown():
         await _db.close()
 
 
+def _get_db() -> aiosqlite.Connection:
+    assert _db is not None
+    return _db
+
+
 # -- helpers ---------------------------------------------------------------
+
 
 async def _broadcast(sockets: list[WebSocket], msg: dict) -> None:
     dead = []
@@ -81,6 +86,7 @@ async def _pty_writer(sandbox_id: str) -> asyncio.StreamWriter | None:
     if writer is not None and not writer.is_closing():
         return writer
     from .runner import _pty_input_sock_path
+
     sock_path = _pty_input_sock_path(sandbox_id)
     if not sock_path.exists():
         return None
@@ -113,6 +119,7 @@ async def write_pty_input(sandbox_id: str, data: bytes) -> None:
 
 async def resize_pty(sandbox_id: str, cols: int, rows: int) -> None:
     from .runner import resize_pty as _runner_resize
+
     # same-process path
     if sandbox_id in _pty_fds:
         _runner_resize(sandbox_id, cols, rows)
@@ -131,6 +138,7 @@ async def resize_pty(sandbox_id: str, cols: int, rows: int) -> None:
 
 # -- REST: sandboxes -------------------------------------------------------
 
+
 @app.get("/api/current-sandbox")
 async def get_current_sandbox():
     return {"id": _current_sandbox_id}
@@ -138,32 +146,37 @@ async def get_current_sandbox():
 
 @app.get("/api/sandboxes/{sandbox_id}")
 async def get_sandbox(sandbox_id: str):
-    s = await dbmod.get_sandbox(_db, sandbox_id)
+    s = await dbmod.get_sandbox(_get_db(), sandbox_id)
     if not s:
         raise HTTPException(404)
-    domains = await dbmod.get_domain_decisions(_db, sandbox_id)
+    domains = await dbmod.get_domain_decisions(_get_db(), sandbox_id)
     return {**s, "domains": domains}
 
 
 @app.get("/api/sandboxes/{sandbox_id}/terminal-log")
 async def get_terminal_log(sandbox_id: str):
-    rows = await dbmod.get_terminal_log(_db, sandbox_id)
+    rows = await dbmod.get_terminal_log(_get_db(), sandbox_id)
     # return as base64-encoded chunks
     import base64
+
     return [{"ts": r["ts"], "data": base64.b64encode(r["data"]).decode()} for r in rows]
 
 
 # -- REST: filesystem binds ------------------------------------------------
 
+
 def _profile_binds(profile_name: str, cwd: str) -> list[dict]:
     from .profiles import PROFILES
+
     p = PROFILES.get(profile_name)
     if p is None:
         return []
     result = [{"host": h, "dest": d, "mode": "rw"} for h, d in p.extra_binds]
     result += [{"host": h, "dest": d, "mode": "ro"} for h, d in p.extra_ro_binds]
     for rel in p.ensure_home_dirs:
-        result.append({"host": str(Path.home() / rel), "dest": str(Path(cwd) / rel), "mode": "rw"})
+        result.append(
+            {"host": str(Path.home() / rel), "dest": str(Path(cwd) / rel), "mode": "rw"}
+        )
     return result
 
 
@@ -171,8 +184,14 @@ def _read_fs_binds_file(cwd: str) -> list[dict]:
     p = Path(cwd) / ".aleash-fs-binds.json"
     try:
         data = json.loads(p.read_text())
-        return [{"host": b["host"], "dest": b.get("dest", b["host"]), "mode": b.get("mode", "ro")}
-                for b in data.get("binds", [])]
+        return [
+            {
+                "host": b["host"],
+                "dest": b.get("dest", b["host"]),
+                "mode": b.get("mode", "ro"),
+            }
+            for b in data.get("binds", [])
+        ]
     except (OSError, json.JSONDecodeError, KeyError):
         return []
 
@@ -183,7 +202,9 @@ def _write_fs_binds_file(cwd: str, binds: list[dict]) -> None:
         "binds": binds,
     }
     try:
-        (Path(cwd) / ".aleash-fs-binds.json").write_text(json.dumps(data, indent=2) + "\n")
+        (Path(cwd) / ".aleash-fs-binds.json").write_text(
+            json.dumps(data, indent=2) + "\n"
+        )
     except OSError:
         pass
 
@@ -191,11 +212,15 @@ def _write_fs_binds_file(cwd: str, binds: list[dict]) -> None:
 @app.get("/api/sandboxes/{sandbox_id}/filesystem")
 async def get_filesystem_binds(sandbox_id: str):
     from .bwrap import SYSTEM_BIND_DISPLAY
-    s = await dbmod.get_sandbox(_db, sandbox_id)
+
+    s = await dbmod.get_sandbox(_get_db(), sandbox_id)
     if not s:
         raise HTTPException(404)
-    system = [{"host": h, "dest": d, "mode": m}
-              for h, d, m in SYSTEM_BIND_DISPLAY if Path(h).exists()]
+    system = [
+        {"host": h, "dest": d, "mode": m}
+        for h, d, m in SYSTEM_BIND_DISPLAY
+        if Path(h).exists()
+    ]
     system.append({"host": s["cwd"], "dest": s["cwd"], "mode": "rw"})
     return {
         "system": system,
@@ -210,7 +235,7 @@ class FilesystemBindsRequest(BaseModel):
 
 @app.put("/api/sandboxes/{sandbox_id}/filesystem")
 async def put_filesystem_binds(sandbox_id: str, req: FilesystemBindsRequest):
-    s = await dbmod.get_sandbox(_db, sandbox_id)
+    s = await dbmod.get_sandbox(_get_db(), sandbox_id)
     if not s:
         raise HTTPException(404)
     _write_fs_binds_file(s["cwd"], req.binds)
@@ -218,6 +243,7 @@ async def put_filesystem_binds(sandbox_id: str, req: FilesystemBindsRequest):
 
 
 # -- REST: services --------------------------------------------------------
+
 
 def _read_services_config(cwd: str) -> dict:
     p = Path(cwd) / ".aleash-services.json"
@@ -234,7 +260,9 @@ def _write_services_config(cwd: str, services: dict) -> None:
         "services": services,
     }
     try:
-        (Path(cwd) / ".aleash-services.json").write_text(json.dumps(data, indent=2) + "\n")
+        (Path(cwd) / ".aleash-services.json").write_text(
+            json.dumps(data, indent=2) + "\n"
+        )
     except OSError:
         pass
 
@@ -244,20 +272,22 @@ def _services_status(cwd: str) -> list[dict]:
     result = []
     for svc_id, svc_def in SERVICES.items():
         sock = svc_def.resolve_socket()
-        result.append({
-            "id": svc_id,
-            "label": svc_def.label,
-            "description": svc_def.description,
-            "enabled": config.get(svc_id, {}).get("enabled", False),
-            "available": sock is not None,
-            "socket": sock,
-        })
+        result.append(
+            {
+                "id": svc_id,
+                "label": svc_def.label,
+                "description": svc_def.description,
+                "enabled": config.get(svc_id, {}).get("enabled", False),
+                "available": sock is not None,
+                "socket": sock,
+            }
+        )
     return result
 
 
 @app.get("/api/sandboxes/{sandbox_id}/services")
 async def get_services(sandbox_id: str):
-    s = await dbmod.get_sandbox(_db, sandbox_id)
+    s = await dbmod.get_sandbox(_get_db(), sandbox_id)
     if not s:
         raise HTTPException(404)
     return {"services": _services_status(s["cwd"])}
@@ -269,7 +299,7 @@ class ServicesRequest(BaseModel):
 
 @app.put("/api/sandboxes/{sandbox_id}/services")
 async def put_services(sandbox_id: str, req: ServicesRequest):
-    s = await dbmod.get_sandbox(_db, sandbox_id)
+    s = await dbmod.get_sandbox(_get_db(), sandbox_id)
     if not s:
         raise HTTPException(404)
     enabled = {k for k, v in req.services.items() if v.get("enabled", False)}
@@ -281,6 +311,7 @@ async def put_services(sandbox_id: str, req: ServicesRequest):
 
 # -- REST: proxy approval ---------------------------------------------------
 
+
 class CheckRequest(BaseModel):
     sandbox_id: str
     domain: str
@@ -289,7 +320,7 @@ class CheckRequest(BaseModel):
 @app.post("/api/proxy/request-approval")
 async def request_approval(req: CheckRequest):
     # check existing decision
-    decision = await dbmod.get_domain_decision(_db, req.sandbox_id, req.domain)
+    decision = await dbmod.get_domain_decision(_get_db(), req.sandbox_id, req.domain)
     if decision is not None:
         return {"action": "allow" if decision else "block"}
 
@@ -307,10 +338,16 @@ async def request_approval(req: CheckRequest):
     # first request for this domain: create pending approval + notify
     approval_id = str(uuid.uuid4())
     now = int(time.time() * 1000)
-    await dbmod.create_pending_approval(_db, approval_id, req.sandbox_id, req.domain, now)
+    await dbmod.create_pending_approval(
+        _get_db(), approval_id, req.sandbox_id, req.domain, now
+    )
 
-    msg = {"type": "approval_request", "approval_id": approval_id,
-           "sandbox_id": req.sandbox_id, "domain": req.domain}
+    msg = {
+        "type": "approval_request",
+        "approval_id": approval_id,
+        "sandbox_id": req.sandbox_id,
+        "domain": req.domain,
+    }
     await _broadcast(_approval_sockets, msg)
 
     loop = asyncio.get_event_loop()
@@ -334,6 +371,7 @@ class DecideRequest(BaseModel):
 
 
 # -- REST: internal (called by runner process) -----------------------------
+
 
 class SandboxStartPayload(BaseModel):
     id: str
@@ -361,8 +399,14 @@ class TerminalResizePayload(BaseModel):
 async def internal_sandbox_start(payload: SandboxStartPayload):
     global _current_sandbox_id
     _current_sandbox_id = payload.id
-    await dbmod.insert_sandbox(_db, payload.id, payload.profile,
-                                payload.cwd, payload.cmd, payload.started_at)
+    await dbmod.insert_sandbox(
+        _get_db(),
+        payload.id,
+        payload.profile,
+        payload.cwd,
+        payload.cmd,
+        payload.started_at,
+    )
     _sandbox_browser_master[payload.id] = payload.browser_master
     perms_file = Path(payload.cwd) / ".aleash-network-permissions.json"
     if perms_file.exists():
@@ -370,7 +414,9 @@ async def internal_sandbox_start(payload: SandboxStartPayload):
             data = json.loads(perms_file.read_text())
             now = int(time.time() * 1000)
             for domain, verdict in data.get("domains", {}).items():
-                await dbmod.set_domain_decision(_db, payload.id, domain, verdict == "allow", now)
+                await dbmod.set_domain_decision(
+                    _get_db(), payload.id, domain, verdict == "allow", now
+                )
         except (OSError, json.JSONDecodeError, AttributeError):
             pass
     await notify_sandbox_update()
@@ -394,7 +440,10 @@ class NotifyPayload(BaseModel):
 
 @app.post("/api/internal/notify")
 async def internal_notify(payload: NotifyPayload):
-    await _broadcast(_approval_sockets, {"type": "notification", "title": payload.title, "body": payload.body})
+    await _broadcast(
+        _approval_sockets,
+        {"type": "notification", "title": payload.title, "body": payload.body},
+    )
     return {"ok": True}
 
 
@@ -403,7 +452,9 @@ async def internal_sandbox_end(payload: SandboxEndPayload):
     global _current_sandbox_id
     if payload.id == _current_sandbox_id:
         _current_sandbox_id = None
-    await dbmod.finish_sandbox(_db, payload.id, payload.ended_at, payload.exit_code)
+    await dbmod.finish_sandbox(
+        _get_db(), payload.id, payload.ended_at, payload.exit_code
+    )
     await notify_sandbox_update()
     writer = _pty_input_writers.pop(payload.id, None)
     if writer:
@@ -416,8 +467,12 @@ class DomainUpdateRequest(BaseModel):
 
 
 @app.put("/api/sandboxes/{sandbox_id}/domains/{domain}")
-async def update_domain_decision(sandbox_id: str, domain: str, req: DomainUpdateRequest):
-    await dbmod.set_domain_decision(_db, sandbox_id, domain, req.allowed, int(time.time() * 1000))
+async def update_domain_decision(
+    sandbox_id: str, domain: str, req: DomainUpdateRequest
+):
+    await dbmod.set_domain_decision(
+        _get_db(), sandbox_id, domain, req.allowed, int(time.time() * 1000)
+    )
     await _write_permissions_file(sandbox_id)
     await notify_sandbox_update()
     return {"ok": True}
@@ -425,12 +480,14 @@ async def update_domain_decision(sandbox_id: str, domain: str, req: DomainUpdate
 
 @app.post("/api/approvals/{approval_id}/decide")
 async def decide_approval(approval_id: str, req: DecideRequest):
-    result = await dbmod.resolve_pending_approval(_db, approval_id, req.approved)
+    result = await dbmod.resolve_pending_approval(_get_db(), approval_id, req.approved)
     if result is None:
         raise HTTPException(404)
     sandbox_id, domain = result
     if req.permanent:
-        await dbmod.set_domain_decision(_db, sandbox_id, domain, req.approved, int(time.time() * 1000))
+        await dbmod.set_domain_decision(
+            _get_db(), sandbox_id, domain, req.approved, int(time.time() * 1000)
+        )
         await _write_permissions_file(sandbox_id)
         await notify_sandbox_update()
     fut = _approval_futures.get(approval_id)
@@ -441,40 +498,52 @@ async def decide_approval(approval_id: str, req: DecideRequest):
 
 # -- WebSocket: terminal ---------------------------------------------------
 
+
 @app.websocket("/ws/terminal/{sandbox_id}")
 async def terminal_ws(websocket: WebSocket, sandbox_id: str):
     import base64
+
     await websocket.accept()
     _terminal_sockets.setdefault(sandbox_id, []).append(websocket)
 
     # Send init message: PTY size + master mode.
     cols, rows = _sandbox_sizes.get(sandbox_id, (220, 50))
     bm = _sandbox_browser_master.get(sandbox_id, False)
-    await websocket.send_json({"type": "init", "cols": cols, "rows": rows, "browser_master": bm})
+    await websocket.send_json(
+        {"type": "init", "cols": cols, "rows": rows, "browser_master": bm}
+    )
 
     # Replay existing log then track last row id for incremental polling.
     # The runner writes to terminal_log directly (different process), so we
     # cannot use in-process broadcast — we poll the DB instead.
-    log_rows = await dbmod.get_terminal_log(_db, sandbox_id)
+    log_rows = await dbmod.get_terminal_log(_get_db(), sandbox_id)
     for row in log_rows:
-        await websocket.send_json({"type": "output", "data": base64.b64encode(row["data"]).decode()})
-    last_id = await dbmod.get_terminal_log_last_id(_db, sandbox_id)
+        await websocket.send_json(
+            {"type": "output", "data": base64.b64encode(row["data"]).decode()}
+        )
+    last_id = await dbmod.get_terminal_log_last_id(_get_db(), sandbox_id)
 
     async def _poll_output():
         nonlocal last_id
         while True:
             await asyncio.sleep(0.05)
-            new_rows = await dbmod.get_terminal_log_after(_db, sandbox_id, last_id)
+            new_rows = await dbmod.get_terminal_log_after(
+                _get_db(), sandbox_id, last_id
+            )
             for row in new_rows:
                 last_id = row["id"]
-                await websocket.send_json({"type": "output", "data": base64.b64encode(row["data"]).decode()})
+                await websocket.send_json(
+                    {"type": "output", "data": base64.b64encode(row["data"]).decode()}
+                )
 
     async def _recv_input():
         while True:
             msg = await websocket.receive_json()
             if msg.get("type") == "input":
                 await write_pty_input(sandbox_id, base64.b64decode(msg["data"]))
-            elif msg.get("type") == "resize" and _sandbox_browser_master.get(sandbox_id, False):
+            elif msg.get("type") == "resize" and _sandbox_browser_master.get(
+                sandbox_id, False
+            ):
                 await resize_pty(sandbox_id, msg.get("cols", 80), msg.get("rows", 24))
 
     poll_task = asyncio.create_task(_poll_output())
@@ -497,6 +566,7 @@ async def terminal_ws(websocket: WebSocket, sandbox_id: str):
 
 # -- WebSocket: approvals --------------------------------------------------
 
+
 @app.websocket("/ws/approvals")
 async def approvals_ws(websocket: WebSocket):
     await websocket.accept()
@@ -514,6 +584,7 @@ async def approvals_ws(websocket: WebSocket):
 
 
 # -- WebSocket: sandbox list -----------------------------------------------
+
 
 @app.websocket("/ws/sandboxes")
 async def sandboxes_ws(websocket: WebSocket):
@@ -533,11 +604,12 @@ async def sandboxes_ws(websocket: WebSocket):
 
 # -- permissions file ------------------------------------------------------
 
+
 async def _write_permissions_file(sandbox_id: str) -> None:
-    sandbox = await dbmod.get_sandbox(_db, sandbox_id)
+    sandbox = await dbmod.get_sandbox(_get_db(), sandbox_id)
     if sandbox is None:
         return
-    decisions = await dbmod.get_domain_decisions(_db, sandbox_id)
+    decisions = await dbmod.get_domain_decisions(_get_db(), sandbox_id)
     domains = {d["domain"]: ("allow" if d["allowed"] else "block") for d in decisions}
     data = {
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -553,10 +625,14 @@ async def _write_permissions_file(sandbox_id: str) -> None:
 
 # -- helpers called by runner ----------------------------------------------
 
+
 async def broadcast_terminal_output(sandbox_id: str, data: bytes) -> None:
     import base64
+
     sockets = _terminal_sockets.get(sandbox_id, [])
-    await _broadcast(sockets, {"type": "output", "data": base64.b64encode(data).decode()})
+    await _broadcast(
+        sockets, {"type": "output", "data": base64.b64encode(data).decode()}
+    )
 
 
 async def notify_sandbox_update() -> None:

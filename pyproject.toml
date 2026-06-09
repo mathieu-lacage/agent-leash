@@ -39,3 +39,12 @@ packages = ["src/aleash"]
 
 [tool.hatch.build.hooks.custom]
 path = "hatch_build.py"
+
+[tool.pyright]
+exclude = ["hatch_build.py", "frontend/", ".venv/"]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.0",
+    "pyright>=1.1.410",
+]

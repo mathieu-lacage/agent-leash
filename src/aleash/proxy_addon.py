@@ -7,7 +7,6 @@ Run as:
              --set sandbox_id=ID --set server_url=http://localhost:7612
 """
 
-import asyncio
 import httpx
 from mitmproxy import http, ctx
 
@@ -18,7 +17,9 @@ class DomainGatekeeper:
 
     def load(self, loader):
         loader.add_option("sandbox_id", str, "", "Sandbox ID")
-        loader.add_option("server_url", str, "http://localhost:7612", "Sandbox server URL")
+        loader.add_option(
+            "server_url", str, "http://localhost:7612", "Sandbox server URL"
+        )
 
     def configure(self, updates):
         if "sandbox_id" in updates:

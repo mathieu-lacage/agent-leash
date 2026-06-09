@@ -4,20 +4,30 @@ from pathlib import Path
 from .profiles import Profile
 
 # Prefixes already mounted inside the sandbox — binary paths under these need no extra bind.
-_MOUNTED_PREFIXES = ("/usr", "/etc", "/lib", "/lib64", "/lib32", "/sys", "/run", "/dev", "/proc",
-                     str(Path.home() / ".local" / "bin"))
+_MOUNTED_PREFIXES = (
+    "/usr",
+    "/etc",
+    "/lib",
+    "/lib64",
+    "/lib32",
+    "/sys",
+    "/run",
+    "/dev",
+    "/proc",
+    str(Path.home() / ".local" / "bin"),
+)
 
 # Real host-path bind mounts from the fixed section of build_bwrap_argv.
 # Excludes --tmpfs, --proc, --symlink, and internal sockets/certs.
 # Used by the server to display system mounts without duplicating this list.
 SYSTEM_BIND_DISPLAY: list[tuple[str, str, str]] = [
-    ("/dev",   "/dev",   "rw"),
-    ("/usr",   "/usr",   "ro"),
-    ("/etc",   "/etc",   "ro"),
-    ("/lib",   "/lib",   "ro"),
+    ("/dev", "/dev", "rw"),
+    ("/usr", "/usr", "ro"),
+    ("/etc", "/etc", "ro"),
+    ("/lib", "/lib", "ro"),
     ("/lib64", "/lib64", "ro"),
     ("/lib32", "/lib32", "ro"),
-    ("/sys",   "/sys",   "ro"),
+    ("/sys", "/sys", "ro"),
 ]
 
 
@@ -61,35 +71,78 @@ def build_bwrap_argv(
         "--unshare-ipc",
         "--share-net",
         "--die-with-parent",
-        "--dev-bind", "/dev", "/dev",
-        "--ro-bind", "/usr", "/usr",
-        "--ro-bind", "/etc", "/etc",
-        "--ro-bind", "/lib", "/lib",
-        "--ro-bind-try", "/lib64", "/lib64",
-        "--ro-bind-try", "/lib32", "/lib32",
-        "--symlink", "usr/bin", "/bin",
-        "--symlink", "usr/sbin", "/sbin",
-        "--ro-bind", "/sys", "/sys",
-        "--tmpfs", "/sys/fs/cgroup",
-        "--proc", "/proc",
-        "--tmpfs", f"/run/user/{uid}",
-        "--tmpfs", "/tmp",
+        "--dev-bind",
+        "/dev",
+        "/dev",
+        "--ro-bind",
+        "/usr",
+        "/usr",
+        "--ro-bind",
+        "/etc",
+        "/etc",
+        "--ro-bind",
+        "/lib",
+        "/lib",
+        "--ro-bind-try",
+        "/lib64",
+        "/lib64",
+        "--ro-bind-try",
+        "/lib32",
+        "/lib32",
+        "--symlink",
+        "usr/bin",
+        "/bin",
+        "--symlink",
+        "usr/sbin",
+        "/sbin",
+        "--ro-bind",
+        "/sys",
+        "/sys",
+        "--tmpfs",
+        "/sys/fs/cgroup",
+        "--proc",
+        "/proc",
+        "--tmpfs",
+        f"/run/user/{uid}",
+        "--tmpfs",
+        "/tmp",
         # CA cert: bind into /tmp (writable tmpfs, must come after --tmpfs /tmp above)
-        "--ro-bind", ca_cert_path, ca_dest,
+        "--ro-bind",
+        ca_cert_path,
+        ca_dest,
         # flatpak-info for portal auth
-        "--ro-bind", fake_flatpak_info, f"/run/user/{uid}/flatpak-info",
+        "--ro-bind",
+        fake_flatpak_info,
+        f"/run/user/{uid}/flatpak-info",
         # xdg-dbus-proxy socket
-        "--bind", xdg_proxy_sock, xdg_proxy_sock,
+        "--bind",
+        xdg_proxy_sock,
+        xdg_proxy_sock,
         # environment
-
-        "--setenv", "http_proxy", proxy_url,
-        "--setenv", "HTTP_PROXY", proxy_url,
-        "--setenv", "https_proxy", proxy_url,
-        "--setenv", "HTTPS_PROXY", proxy_url,
-        "--setenv", "SSL_CERT_FILE", ca_dest,
-        "--setenv", "REQUESTS_CA_BUNDLE", ca_dest,
-        "--setenv", "NODE_EXTRA_CA_CERTS", ca_dest,
-        "--setenv", "DBUS_SESSION_BUS_ADDRESS", f"unix:path={xdg_proxy_sock}",
+        "--setenv",
+        "http_proxy",
+        proxy_url,
+        "--setenv",
+        "HTTP_PROXY",
+        proxy_url,
+        "--setenv",
+        "https_proxy",
+        proxy_url,
+        "--setenv",
+        "HTTPS_PROXY",
+        proxy_url,
+        "--setenv",
+        "SSL_CERT_FILE",
+        ca_dest,
+        "--setenv",
+        "REQUESTS_CA_BUNDLE",
+        ca_dest,
+        "--setenv",
+        "NODE_EXTRA_CA_CERTS",
+        ca_dest,
+        "--setenv",
+        "DBUS_SESSION_BUS_ADDRESS",
+        f"unix:path={xdg_proxy_sock}",
     ]
 
     # Collect content binds then sort shortest-dest-first so parent RO mounts
@@ -121,12 +174,12 @@ def build_bwrap_argv(
         content.append(("--bind", str(host_path), str(Path(cwd) / rel)))
 
     # user-configured extra binds (from .aleash-fs-binds.json)
-    for host, dest, mode in (user_binds or []):
+    for host, dest, mode in user_binds or []:
         if Path(host).exists():
             content.append(("--bind" if mode == "rw" else "--ro-bind", host, dest))
 
     # service binds (from .aleash-services.json)
-    for host, dest, mode in (service_binds or []):
+    for host, dest, mode in service_binds or []:
         if Path(host).exists():
             content.append(("--bind" if mode == "rw" else "--ro-bind", host, dest))
 
@@ -148,7 +201,9 @@ def build_bwrap_argv(
     # (e.g. ~/.local/bin/claude installed via pipx/npm)
     binary = cmd[0]
     if os.path.isabs(binary):
-        for p in dict.fromkeys([binary, os.path.realpath(binary)]):  # dedup, preserve order
+        for p in dict.fromkeys(
+            [binary, os.path.realpath(binary)]
+        ):  # dedup, preserve order
             if _outside_mounts(p) and os.path.exists(p):
                 args += ["--ro-bind", p, p]
 

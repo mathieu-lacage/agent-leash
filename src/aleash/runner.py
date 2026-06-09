@@ -39,8 +39,10 @@ def _load_user_binds(cwd: str) -> list[tuple[str, str, str]]:
     p = Path(cwd) / ".aleash-fs-binds.json"
     try:
         data = json.loads(p.read_text())
-        return [(b["host"], b.get("dest", b["host"]), b.get("mode", "ro"))
-                for b in data.get("binds", [])]
+        return [
+            (b["host"], b.get("dest", b["host"]), b.get("mode", "ro"))
+            for b in data.get("binds", [])
+        ]
     except (OSError, json.JSONDecodeError, KeyError):
         return []
 
@@ -63,6 +65,7 @@ def _load_services(cwd: str) -> tuple[list[tuple[str, str, str]], dict[str, str]
                 all_env.update(env)
     return all_binds, all_env
 
+
 # Maps sandbox_id -> master PTY fd (same-process fast path)
 _pty_fds: dict[str, int] = {}
 # Maps sandbox_id -> (cols, rows) current PTY size
@@ -75,15 +78,22 @@ def _pty_input_sock_path(sandbox_id: str) -> Path:
     return MLEASH_DIR / f"pty-{sandbox_id}.sock"
 
 
-async def _push_size_to_server(sandbox_id: str, cols: int, rows: int,
-                                server_url: str, browser_master: bool = False) -> None:
+async def _push_size_to_server(
+    sandbox_id: str, cols: int, rows: int, server_url: str, browser_master: bool = False
+) -> None:
     try:
         import httpx
+
         async with httpx.AsyncClient(timeout=1.0) as c:
-            await c.post(f"{server_url}/api/internal/terminal-resize", json={
-                "id": sandbox_id, "cols": cols, "rows": rows,
-                "browser_master": browser_master,
-            })
+            await c.post(
+                f"{server_url}/api/internal/terminal-resize",
+                json={
+                    "id": sandbox_id,
+                    "cols": cols,
+                    "rows": rows,
+                    "browser_master": browser_master,
+                },
+            )
     except Exception:
         pass
 
@@ -124,7 +134,9 @@ def _mitmproxy_ca_cert() -> Path:
 async def _start_xdg_dbus_proxy(sock_path: str) -> asyncio.subprocess.Process:
     dbus_addr = os.environ.get("DBUS_SESSION_BUS_ADDRESS", "")
     proc = await asyncio.create_subprocess_exec(
-        "xdg-dbus-proxy", dbus_addr, sock_path,
+        "xdg-dbus-proxy",
+        dbus_addr,
+        sock_path,
         "--filter",
         "--talk=org.freedesktop.portal.Desktop",
         "--call=org.freedesktop.portal.OpenURI=*",
@@ -147,7 +159,10 @@ async def _ensure_mitmproxy_ca() -> Path:
     if not ca.exists():
         # run mitmdump briefly to generate certs
         proc = await asyncio.create_subprocess_exec(
-            "mitmdump", "--listen-port", "18080", "-n",
+            "mitmdump",
+            "--listen-port",
+            "18080",
+            "-n",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -160,15 +175,21 @@ async def _ensure_mitmproxy_ca() -> Path:
     return ca
 
 
-async def _start_mitmdump(proxy_port: int, sandbox_id: str, addon_path: str,
-                          server_url: str) -> asyncio.subprocess.Process:
+async def _start_mitmdump(
+    proxy_port: int, sandbox_id: str, addon_path: str, server_url: str
+) -> asyncio.subprocess.Process:
     proc = await asyncio.create_subprocess_exec(
         "mitmdump",
-        "--listen-host", "127.0.0.1",
-        "--listen-port", str(proxy_port),
-        "-s", addon_path,
-        "--set", f"sandbox_id={sandbox_id}",
-        "--set", f"server_url={server_url}",
+        "--listen-host",
+        "127.0.0.1",
+        "--listen-port",
+        str(proxy_port),
+        "-s",
+        addon_path,
+        "--set",
+        f"sandbox_id={sandbox_id}",
+        "--set",
+        f"server_url={server_url}",
         "--quiet",
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -200,12 +221,19 @@ async def run_sandbox(
     fake_flatpak = write_fake_flatpak_info(tmpdir)
 
     import httpx
+
     async with httpx.AsyncClient(timeout=2.0) as c:
-        await c.post(f"{server_url}/api/internal/sandbox-start", json={
-            "id": sandbox_id, "profile": profile.name,
-            "cwd": cwd, "cmd": " ".join(cmd), "started_at": started_at,
-            "browser_master": browser_master,
-        })
+        await c.post(
+            f"{server_url}/api/internal/sandbox-start",
+            json={
+                "id": sandbox_id,
+                "profile": profile.name,
+                "cwd": cwd,
+                "cmd": " ".join(cmd),
+                "started_at": started_at,
+                "browser_master": browser_master,
+            },
+        )
 
     proxy_port = _free_port()
     ca_cert = await _ensure_mitmproxy_ca()
@@ -213,13 +241,18 @@ async def run_sandbox(
     xdg_proc = None
     mitm_proc = None
     exit_code = 1
+    loop = asyncio.get_event_loop()
+    pty_input_server = None
+    master_fd = None
 
     try:
         # start xdg-dbus-proxy
         xdg_proc = await _start_xdg_dbus_proxy(xdg_proxy_sock)
 
         # start mitmproxy
-        mitm_proc = await _start_mitmdump(proxy_port, sandbox_id, addon_path, server_url)
+        mitm_proc = await _start_mitmdump(
+            proxy_port, sandbox_id, addon_path, server_url
+        )
 
         # build bwrap command
         svc_binds, svc_env = _load_services(cwd)
@@ -246,7 +279,9 @@ async def run_sandbox(
         sock_path.unlink(missing_ok=True)
 
         def _make_input_handler(fd: int):
-            async def _handle(reader: asyncio.StreamReader, _writer: asyncio.StreamWriter):
+            async def _handle(
+                reader: asyncio.StreamReader, _writer: asyncio.StreamWriter
+            ):
                 buf = b""
                 while True:
                     chunk = await reader.read(4096)
@@ -257,8 +292,8 @@ async def run_sandbox(
                     out = b""
                     i = 0
                     while i < len(buf):
-                        if buf[i:i+2] == b"\x00R" and len(buf) >= i + 6:
-                            cols, rows = struct.unpack(">HH", buf[i+2:i+6])
+                        if buf[i : i + 2] == b"\x00R" and len(buf) >= i + 6:
+                            cols, rows = struct.unpack(">HH", buf[i + 2 : i + 6])
                             winsize = struct.pack("HHHH", rows, cols, 0, 0)
                             try:
                                 fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
@@ -266,7 +301,7 @@ async def run_sandbox(
                                 pass
                             i += 6
                         else:
-                            out += buf[i:i+1]
+                            out += buf[i : i + 1]
                             i += 1
                     buf = b""
                     if out:
@@ -274,6 +309,7 @@ async def run_sandbox(
                             os.write(fd, out)
                         except OSError:
                             break
+
             return _handle
 
         pty_input_server = await asyncio.start_unix_server(
@@ -300,18 +336,23 @@ async def run_sandbox(
         await _push_size_to_server(sandbox_id, cols, rows, server_url, browser_master)
 
         # SIGWINCH: track local terminal resize → update PTY + notify server/browser
-        loop = asyncio.get_event_loop()
         if not browser_master and os.isatty(0):
+
             def _on_sigwinch():
                 try:
-                    ts2 = fcntl.ioctl(0, termios.TIOCGWINSZ, struct.pack("HHHH", 0, 0, 0, 0))
+                    ts2 = fcntl.ioctl(
+                        0, termios.TIOCGWINSZ, struct.pack("HHHH", 0, 0, 0, 0)
+                    )
                     r2, c2, _, _ = struct.unpack("HHHH", ts2)
                     if c2 > 0 and r2 > 0:
                         fcntl.ioctl(master_fd, termios.TIOCSWINSZ, ts2)
                         _pty_sizes[sandbox_id] = (c2, r2)
-                        asyncio.ensure_future(_push_size_to_server(sandbox_id, c2, r2, server_url, False))
+                        asyncio.ensure_future(
+                            _push_size_to_server(sandbox_id, c2, r2, server_url, False)
+                        )
                 except OSError:
                     pass
+
             loop.add_signal_handler(signal.SIGWINCH, _on_sigwinch)
 
         def _child_setup() -> None:
@@ -332,9 +373,9 @@ async def run_sandbox(
         os.close(slave_fd)
 
         # stream PTY output; also relay local terminal if stdin is a TTY
-        loop = asyncio.get_event_loop()
-        await _stream_pty(master_fd, sandbox_id, loop, interactive=os.isatty(0),
-                          server_url=server_url)
+        await _stream_pty(
+            master_fd, sandbox_id, loop, interactive=os.isatty(0), server_url=server_url
+        )
 
         exit_code = await proc.wait()
 
@@ -348,10 +389,11 @@ async def run_sandbox(
             pass
         # No awaits in this block — CancelledError is BaseException and would skip
         # everything after the first await.  Use sync operations throughout.
-        try:
-            pty_input_server.close()
-        except Exception:
-            pass
+        if pty_input_server is not None:
+            try:
+                pty_input_server.close()
+            except Exception:
+                pass
         _pty_input_sock_path(sandbox_id).unlink(missing_ok=True)
         if master_fd:
             try:
@@ -369,6 +411,7 @@ async def run_sandbox(
 
         # Sync DB update — guaranteed even if asyncio task was cancelled.
         import sqlite3 as _sqlite3
+
         ended_at = int(time.time() * 1000)
         try:
             with _sqlite3.connect(str(dbmod.DB_PATH)) as _sdb:
@@ -381,11 +424,15 @@ async def run_sandbox(
 
         # Notify server so it broadcasts sandboxes_updated to browser.
         # Runs in a thread so it fires even during asyncio shutdown.
-        import urllib.request as _urlreq, json as _json, threading as _thr
+        import urllib.request as _urlreq
+        import json as _json
+        import threading as _thr
+
         def _notify():
             try:
-                body = _json.dumps({"id": sandbox_id, "ended_at": ended_at,
-                                    "exit_code": exit_code}).encode()
+                body = _json.dumps(
+                    {"id": sandbox_id, "ended_at": ended_at, "exit_code": exit_code}
+                ).encode()
                 req = _urlreq.Request(
                     f"{server_url}/api/internal/sandbox-end",
                     data=body,
@@ -395,6 +442,7 @@ async def run_sandbox(
                 _urlreq.urlopen(req, timeout=0.5)
             except Exception:
                 pass
+
         _t = _thr.Thread(target=_notify, daemon=True)
         _t.start()
         _t.join(timeout=0.6)
@@ -403,11 +451,18 @@ async def run_sandbox(
 
 
 def _post_notify(sandbox_id: str, server_url: str) -> None:
-    import urllib.request as _r, json as _j
-    body = _j.dumps({"title": "Claude needs input",
-                     "body": f"Sandbox {sandbox_id[:8]} is waiting"}).encode()
-    req = _r.Request(f"{server_url}/api/internal/notify", data=body,
-                     headers={"Content-Type": "application/json"}, method="POST")
+    import urllib.request as _r
+    import json as _j
+
+    body = _j.dumps(
+        {"title": "Claude needs input", "body": f"Sandbox {sandbox_id[:8]} is waiting"}
+    ).encode()
+    req = _r.Request(
+        f"{server_url}/api/internal/notify",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
         _r.urlopen(req, timeout=0.5)
     except Exception:
@@ -478,14 +533,16 @@ async def _stream_pty(
         if now - last_notify_time < _NOTIF_COOLDOWN:
             return
         last_notify_time = now
-        threading.Thread(target=_post_notify, args=(sandbox_id, server_url), daemon=True).start()
+        threading.Thread(
+            target=_post_notify, args=(sandbox_id, server_url), daemon=True
+        ).start()
 
     try:
         while True:
             data = await read_queue.get()
             if data is None:
                 break
-            if b'\x07' in data:
+            if b"\x07" in data:
                 _maybe_notify()
             if interactive:
                 os.write(1, data)  # local stdout

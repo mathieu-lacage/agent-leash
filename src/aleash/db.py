@@ -1,15 +1,14 @@
-import asyncio
 import re
 import aiosqlite
 from pathlib import Path
-from typing import Any
 
 DB_PATH = Path.home() / ".aleash" / "data.db"
 
-_ANSI_RE = re.compile(rb'\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+_ANSI_RE = re.compile(rb"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
 
 def _strip_ansi(data: bytes) -> str:
-    return _ANSI_RE.sub(b'', data).decode('utf-8', errors='replace')
+    return _ANSI_RE.sub(b"", data).decode("utf-8", errors="replace")
 
 
 async def get_db() -> aiosqlite.Connection:
@@ -74,17 +73,23 @@ async def init_db(db: aiosqlite.Connection) -> None:
     if not fts_existed:
         async with db.execute("SELECT sandbox_id, data FROM terminal_log") as cur:
             async for row in cur:
-                text = _strip_ansi(bytes(row['data']))
+                text = _strip_ansi(bytes(row["data"]))
                 if text.strip():
                     await db.execute(
                         "INSERT INTO terminal_fts(sandbox_id, text) VALUES (?,?)",
-                        (row['sandbox_id'], text),
+                        (row["sandbox_id"], text),
                     )
         await db.commit()
 
 
-async def insert_sandbox(db: aiosqlite.Connection, sandbox_id: str, profile: str,
-                          cwd: str, cmd: str, started_at: int) -> None:
+async def insert_sandbox(
+    db: aiosqlite.Connection,
+    sandbox_id: str,
+    profile: str,
+    cwd: str,
+    cmd: str,
+    started_at: int,
+) -> None:
     await db.execute(
         "INSERT INTO sandboxes (id, profile, cwd, cmd, started_at) VALUES (?,?,?,?,?)",
         (sandbox_id, profile, cwd, cmd, started_at),
@@ -92,8 +97,9 @@ async def insert_sandbox(db: aiosqlite.Connection, sandbox_id: str, profile: str
     await db.commit()
 
 
-async def finish_sandbox(db: aiosqlite.Connection, sandbox_id: str,
-                          ended_at: int, exit_code: int) -> None:
+async def finish_sandbox(
+    db: aiosqlite.Connection, sandbox_id: str, ended_at: int, exit_code: int
+) -> None:
     await db.execute(
         "UPDATE sandboxes SET ended_at=?, exit_code=? WHERE id=?",
         (ended_at, exit_code, sandbox_id),
@@ -101,8 +107,9 @@ async def finish_sandbox(db: aiosqlite.Connection, sandbox_id: str,
     await db.commit()
 
 
-async def append_terminal_log(db: aiosqlite.Connection, sandbox_id: str,
-                               ts: int, data: bytes) -> None:
+async def append_terminal_log(
+    db: aiosqlite.Connection, sandbox_id: str, ts: int, data: bytes
+) -> None:
     await db.execute(
         "INSERT INTO terminal_log (sandbox_id, ts, data) VALUES (?,?,?)",
         (sandbox_id, ts, data),
@@ -122,11 +129,13 @@ async def get_terminal_log_last_id(db: aiosqlite.Connection, sandbox_id: str) ->
         (sandbox_id,),
     ) as cur:
         row = await cur.fetchone()
+        assert row is not None
         return int(row["last_id"])
 
 
-async def get_terminal_log_after(db: aiosqlite.Connection,
-                                  sandbox_id: str, after_id: int) -> list[dict]:
+async def get_terminal_log_after(
+    db: aiosqlite.Connection, sandbox_id: str, after_id: int
+) -> list[dict]:
     async with db.execute(
         "SELECT id, data FROM terminal_log WHERE sandbox_id=? AND id>? ORDER BY id LIMIT 200",
         (sandbox_id, after_id),
@@ -142,8 +151,9 @@ async def get_terminal_log(db: aiosqlite.Connection, sandbox_id: str) -> list[di
         return [{"ts": r["ts"], "data": bytes(r["data"])} for r in await cur.fetchall()]
 
 
-async def get_domain_decision(db: aiosqlite.Connection,
-                               sandbox_id: str, domain: str) -> int | None:
+async def get_domain_decision(
+    db: aiosqlite.Connection, sandbox_id: str, domain: str
+) -> int | None:
     async with db.execute(
         "SELECT allowed FROM domain_decisions WHERE sandbox_id=? AND domain=?",
         (sandbox_id, domain),
@@ -152,8 +162,13 @@ async def get_domain_decision(db: aiosqlite.Connection,
         return int(row["allowed"]) if row else None
 
 
-async def set_domain_decision(db: aiosqlite.Connection, sandbox_id: str,
-                               domain: str, allowed: bool, decided_at: int) -> None:
+async def set_domain_decision(
+    db: aiosqlite.Connection,
+    sandbox_id: str,
+    domain: str,
+    allowed: bool,
+    decided_at: int,
+) -> None:
     await db.execute(
         """INSERT INTO domain_decisions (sandbox_id, domain, allowed, decided_at)
            VALUES (?,?,?,?)
@@ -163,8 +178,13 @@ async def set_domain_decision(db: aiosqlite.Connection, sandbox_id: str,
     await db.commit()
 
 
-async def create_pending_approval(db: aiosqlite.Connection, approval_id: str,
-                                   sandbox_id: str, domain: str, requested_at: int) -> None:
+async def create_pending_approval(
+    db: aiosqlite.Connection,
+    approval_id: str,
+    sandbox_id: str,
+    domain: str,
+    requested_at: int,
+) -> None:
     await db.execute(
         "INSERT INTO pending_approvals (id, sandbox_id, domain, requested_at) VALUES (?,?,?,?)",
         (approval_id, sandbox_id, domain, requested_at),
@@ -172,8 +192,9 @@ async def create_pending_approval(db: aiosqlite.Connection, approval_id: str,
     await db.commit()
 
 
-async def resolve_pending_approval(db: aiosqlite.Connection,
-                                    approval_id: str, decided: bool) -> str | None:
+async def resolve_pending_approval(
+    db: aiosqlite.Connection, approval_id: str, decided: bool
+) -> tuple[str, str] | None:
     async with db.execute(
         "SELECT sandbox_id, domain FROM pending_approvals WHERE id=?", (approval_id,)
     ) as cur:
@@ -189,9 +210,7 @@ async def resolve_pending_approval(db: aiosqlite.Connection,
 
 
 async def get_sandbox(db: aiosqlite.Connection, sandbox_id: str) -> dict | None:
-    async with db.execute(
-        "SELECT * FROM sandboxes WHERE id=?", (sandbox_id,)
-    ) as cur:
+    async with db.execute("SELECT * FROM sandboxes WHERE id=?", (sandbox_id,)) as cur:
         row = await cur.fetchone()
         return dict(row) if row else None
 
