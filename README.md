@@ -1,7 +1,11 @@
 # agent-leash
 
-Sandbox runner for AI coding agents. Restricts filesystem access to the current
-directory and intercepts all network traffic with interactive per-domain approval.
+Sandbox runner for AI coding agents:
+
+- Restricts filesystem access to the current directory
+- Custom allow-list to expose more directories as read-only or read-write
+- Intercepts all network traffic with interactive per-domain approval
+- Controls access to host services (podman, docker, ssh-agent, etc.)
 
 ```console
 $ pipx install agent-leash
