@@ -433,7 +433,6 @@ async def internal_terminal_resize(payload: TerminalResizePayload):
     return {"ok": True}
 
 
-
 @app.post("/api/internal/sandbox-end")
 async def internal_sandbox_end(payload: SandboxEndPayload):
     global _current_sandbox_id
