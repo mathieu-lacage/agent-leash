@@ -6,7 +6,8 @@ from typing import Any
 from .profiles import Profile
 
 # Prefixes already mounted inside the sandbox — binary paths under these need no extra bind.
-_MOUNTED_PREFIXES = ("/usr", "/etc", "/lib", "/lib64", "/lib32", "/sys", "/run", "/dev", "/proc")
+_MOUNTED_PREFIXES = ("/usr", "/etc", "/lib", "/lib64", "/lib32", "/sys", "/run", "/dev", "/proc",
+                     str(Path.home() / ".local" / "bin"))
 
 
 def _outside_mounts(path: str) -> bool:
@@ -75,7 +76,7 @@ def build_bwrap_argv(
         "--bind", cwd, cwd,
         "--chdir", cwd,
         # environment
-        "--setenv", "HOME", cwd,
+
         "--setenv", "http_proxy", proxy_url,
         "--setenv", "HTTP_PROXY", proxy_url,
         "--setenv", "https_proxy", proxy_url,
@@ -86,6 +87,11 @@ def build_bwrap_argv(
         "--setenv", "DBUS_SESSION_BUS_ADDRESS", f"unix:path={xdg_proxy_sock}",
         "--setenv", "CONTAINER_HOST", f"unix://{podman_sock}",
     ]
+
+    # ~/.local/bin — user-installed binaries (pipx, npm, cargo, etc.)
+    local_bin = Path.home() / ".local" / "bin"
+    if local_bin.is_dir():
+        args += ["--ro-bind", str(local_bin), str(local_bin)]
 
     # podman socket
     if Path(podman_sock).exists():

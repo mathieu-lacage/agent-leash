@@ -32,6 +32,7 @@ _register(Profile(
         (_home(".claude"), _home(".claude")),
         (_home(".claude.json"), _home(".claude.json")),
         (_home(".gitconfig"), _home(".gitconfig")),
+        (_home(".local", "share", "claude"), _home(".local", "share", "claude")),
     ],
 ))
 
