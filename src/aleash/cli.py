@@ -9,7 +9,14 @@ import click
 DAEMON_DIR = Path.home() / ".aleash"
 
 
-def _free_port() -> int:
+def _free_port(preferred: int = 7612) -> int:
+    with socket.socket() as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", preferred))
+            return preferred
+        except OSError:
+            pass
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
