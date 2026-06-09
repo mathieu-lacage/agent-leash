@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import struct
 import time
@@ -242,6 +243,15 @@ async def internal_sandbox_start(payload: SandboxStartPayload):
     await dbmod.insert_sandbox(_db, payload.id, payload.profile,
                                 payload.cwd, payload.cmd, payload.started_at)
     _sandbox_browser_master[payload.id] = payload.browser_master
+    perms_file = Path(payload.cwd) / ".aleash-network-permissions.json"
+    if perms_file.exists():
+        try:
+            data = json.loads(perms_file.read_text())
+            now = int(time.time() * 1000)
+            for domain, verdict in data.get("domains", {}).items():
+                await dbmod.set_domain_decision(_db, payload.id, domain, verdict == "allow", now)
+        except (OSError, json.JSONDecodeError, AttributeError):
+            pass
     await notify_sandbox_update()
     return {"ok": True}
 
@@ -273,6 +283,7 @@ class DomainUpdateRequest(BaseModel):
 @app.put("/api/sandboxes/{sandbox_id}/domains/{domain}")
 async def update_domain_decision(sandbox_id: str, domain: str, req: DomainUpdateRequest):
     await dbmod.set_domain_decision(_db, sandbox_id, domain, req.allowed, int(time.time() * 1000))
+    await _write_permissions_file(sandbox_id)
     await notify_sandbox_update()
     return {"ok": True}
 
@@ -285,6 +296,7 @@ async def decide_approval(approval_id: str, req: DecideRequest):
     sandbox_id, domain = result
     if req.permanent:
         await dbmod.set_domain_decision(_db, sandbox_id, domain, req.approved, int(time.time() * 1000))
+        await _write_permissions_file(sandbox_id)
         await notify_sandbox_update()
     fut = _approval_futures.get(approval_id)
     if fut and not fut.done():
@@ -382,6 +394,26 @@ async def sandboxes_ws(websocket: WebSocket):
             _sandbox_list_sockets.remove(websocket)
         except ValueError:
             pass
+
+
+# -- permissions file ------------------------------------------------------
+
+async def _write_permissions_file(sandbox_id: str) -> None:
+    sandbox = await dbmod.get_sandbox(_db, sandbox_id)
+    if sandbox is None:
+        return
+    decisions = await dbmod.get_domain_decisions(_db, sandbox_id)
+    domains = {d["domain"]: ("allow" if d["allowed"] else "block") for d in decisions}
+    data = {
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "domains": domains,
+    }
+    try:
+        (Path(sandbox["cwd"]) / ".aleash-network-permissions.json").write_text(
+            json.dumps(data, indent=2) + "\n"
+        )
+    except OSError:
+        pass
 
 
 # -- helpers called by runner ----------------------------------------------

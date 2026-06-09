@@ -23,6 +23,7 @@ interface ApprovalRequest {
 const sandboxes = ref<Sandbox[]>([])
 const selectedId = ref<string | null>(null)
 const pendingApprovals = ref<ApprovalRequest[]>([])
+const showNotifBanner = ref('Notification' in window && Notification.permission === 'default')
 
 const sidebarMode = ref<'live' | 'history'>('live')
 const historyItems = ref<Sandbox[]>([])
@@ -91,12 +92,15 @@ function onApprovalDecided(approvalId: string) {
   pendingApprovals.value = pendingApprovals.value.filter(a => a.approval_id !== approvalId)
 }
 
+async function requestNotifPermission() {
+  await Notification.requestPermission()
+  showNotifBanner.value = false
+}
+
 onMounted(() => {
   fetchSandboxes()
   connectListWs()
   connectApprovalWs()
-  if ('Notification' in window && Notification.permission === 'default')
-    Notification.requestPermission()
 })
 
 onUnmounted(() => {
@@ -134,5 +138,61 @@ onUnmounted(() => {
       :request="req"
       @decided="onApprovalDecided"
     />
+
+    <div v-if="showNotifBanner" class="notif-banner">
+      <span>Enable desktop notifications to be alerted when a sandbox requests network access.</span>
+      <button class="notif-btn-enable" @click="requestNotifPermission">Enable notifications</button>
+      <button class="notif-btn-dismiss" @click="showNotifBanner = false">Dismiss</button>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.notif-banner {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #2a2a2a;
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+  font-size: 0.85rem;
+  color: #ddd;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  z-index: 1000;
+  white-space: nowrap;
+}
+
+.notif-btn-enable {
+  background: #4a90d9;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.notif-btn-enable:hover {
+  background: #5aa0e9;
+}
+
+.notif-btn-dismiss {
+  background: transparent;
+  color: #aaa;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.notif-btn-dismiss:hover {
+  color: #ddd;
+  border-color: #888;
+}
+</style>
