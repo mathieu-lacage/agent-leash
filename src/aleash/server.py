@@ -41,6 +41,8 @@ _sandbox_sizes: dict[str, tuple[int, int]] = {}
 _sandbox_browser_master: dict[str, bool] = {}
 # shared db connection (set at startup)
 _db: aiosqlite.Connection | None = None
+# currently running sandbox id (at most one)
+_current_sandbox_id: str | None = None
 
 
 @app.on_event("startup")
@@ -128,19 +130,9 @@ async def resize_pty(sandbox_id: str, cols: int, rows: int) -> None:
 
 # -- REST: sandboxes -------------------------------------------------------
 
-@app.get("/api/sandboxes")
-async def list_sandboxes(running_only: bool = False):
-    return await dbmod.get_sandboxes(_db, running_only=running_only)
-
-
-@app.get("/api/search")
-async def search_sandboxes(q: str = ""):
-    if not q.strip():
-        return await dbmod.get_sandboxes(_db, running_only=False)
-    try:
-        return await dbmod.search_sandboxes(_db, q.strip())
-    except Exception:
-        return await dbmod.search_sandboxes_meta(_db, q.strip())
+@app.get("/api/current-sandbox")
+async def get_current_sandbox():
+    return {"id": _current_sandbox_id}
 
 
 @app.get("/api/sandboxes/{sandbox_id}")
@@ -240,6 +232,8 @@ class TerminalResizePayload(BaseModel):
 
 @app.post("/api/internal/sandbox-start")
 async def internal_sandbox_start(payload: SandboxStartPayload):
+    global _current_sandbox_id
+    _current_sandbox_id = payload.id
     await dbmod.insert_sandbox(_db, payload.id, payload.profile,
                                 payload.cwd, payload.cmd, payload.started_at)
     _sandbox_browser_master[payload.id] = payload.browser_master
@@ -268,6 +262,9 @@ async def internal_terminal_resize(payload: TerminalResizePayload):
 
 @app.post("/api/internal/sandbox-end")
 async def internal_sandbox_end(payload: SandboxEndPayload):
+    global _current_sandbox_id
+    if payload.id == _current_sandbox_id:
+        _current_sandbox_id = None
     await dbmod.finish_sandbox(_db, payload.id, payload.ended_at, payload.exit_code)
     await notify_sandbox_update()
     writer = _pty_input_writers.pop(payload.id, None)

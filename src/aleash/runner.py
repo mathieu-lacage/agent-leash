@@ -159,6 +159,7 @@ async def run_sandbox(
     sandbox_id = sandbox_id or str(uuid.uuid4())
     started_at = int(time.time() * 1000)
     _sandbox_browser_master[sandbox_id] = browser_master
+    MLEASH_DIR.mkdir(parents=True, exist_ok=True)
 
     # locate the proxy addon script
     addon_path = str(Path(__file__).parent / "proxy_addon.py")

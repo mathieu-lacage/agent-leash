@@ -188,48 +188,6 @@ async def resolve_pending_approval(db: aiosqlite.Connection,
     return row["sandbox_id"], row["domain"]
 
 
-async def get_sandboxes(db: aiosqlite.Connection, running_only: bool = False) -> list[dict]:
-    where = "WHERE ended_at IS NULL" if running_only else ""
-    async with db.execute(
-        f"SELECT * FROM sandboxes {where} ORDER BY started_at DESC"
-    ) as cur:
-        return [dict(r) for r in await cur.fetchall()]
-
-
-async def search_sandboxes_meta(db: aiosqlite.Connection, q: str) -> list[dict]:
-    like = f"%{q}%"
-    async with db.execute(
-        """SELECT * FROM sandboxes
-           WHERE ended_at IS NOT NULL
-             AND (profile LIKE ? OR cwd LIKE ? OR cmd LIKE ?)
-           ORDER BY started_at DESC LIMIT 50""",
-        (like, like, like),
-    ) as cur:
-        return [dict(r) for r in await cur.fetchall()]
-
-
-async def search_sandboxes(db: aiosqlite.Connection, q: str) -> list[dict]:
-    like = f"%{q}%"
-    async with db.execute(
-        """SELECT * FROM sandboxes
-           WHERE ended_at IS NOT NULL
-             AND (profile LIKE ? OR cwd LIKE ? OR cmd LIKE ?)
-           ORDER BY started_at DESC LIMIT 50""",
-        (like, like, like),
-    ) as cur:
-        results = {r['id']: dict(r) for r in await cur.fetchall()}
-    async with db.execute(
-        """SELECT DISTINCT s.* FROM sandboxes s
-           JOIN terminal_fts f ON f.sandbox_id = s.id
-           WHERE s.ended_at IS NOT NULL AND terminal_fts MATCH ?
-           ORDER BY s.started_at DESC LIMIT 50""",
-        (q,),
-    ) as cur:
-        for r in await cur.fetchall():
-            results.setdefault(r['id'], dict(r))
-    return sorted(results.values(), key=lambda x: x['started_at'], reverse=True)[:50]
-
-
 async def get_sandbox(db: aiosqlite.Connection, sandbox_id: str) -> dict | None:
     async with db.execute(
         "SELECT * FROM sandboxes WHERE id=?", (sandbox_id,)

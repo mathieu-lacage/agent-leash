@@ -42,6 +42,8 @@ def _start_server_background(port: int):
 @click.pass_context
 def main(ctx, profile, browser_master):
     """Sandbox runner for AI coding agents."""
+    from . import db as _db
+    _db.DB_PATH = Path.cwd() / ".aleash" / "data.db"
     ctx.ensure_object(dict)
     ctx.obj["profile"] = profile
     ctx.obj["browser_master"] = browser_master

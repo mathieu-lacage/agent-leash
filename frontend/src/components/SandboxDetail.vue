@@ -13,10 +13,15 @@ interface Sandbox {
   exit_code: number | null
 }
 
-const props = defineProps<{ sandboxId: string; sandbox: Sandbox | null }>()
+const props = defineProps<{ sandboxId: string }>()
 const tab = ref<'terminal' | 'domains'>('terminal')
+const sandboxMeta = ref<Sandbox | null>(null)
 
-watch(() => props.sandboxId, () => { tab.value = 'terminal' })
+watch(() => props.sandboxId, async (id) => {
+  tab.value = 'terminal'
+  const r = await fetch(`/api/sandboxes/${id}`)
+  sandboxMeta.value = await r.json()
+}, { immediate: true })
 
 function statusLabel(s: Sandbox) {
   if (!s.ended_at) return 'running'
@@ -33,8 +38,8 @@ function shortCwd(cwd: string) {
     <div class="tabs">
       <button class="tab-btn" :class="{ active: tab === 'terminal' }" @click="tab = 'terminal'">Terminal</button>
       <button class="tab-btn" :class="{ active: tab === 'domains' }" @click="tab = 'domains'">Domains</button>
-      <span style="margin-left:auto;padding:10px 16px;font-size:0.8rem;color:#555;cursor:default" v-if="sandbox" :title="sandbox.cwd">
-        {{ sandbox.profile }} · {{ shortCwd(sandbox.cwd) }} · {{ statusLabel(sandbox) }}
+      <span v-if="sandboxMeta" style="margin-left:auto;padding:10px 16px;font-size:0.8rem;color:#555;cursor:default" :title="sandboxMeta.cwd">
+        {{ sandboxMeta.profile }} · {{ shortCwd(sandboxMeta.cwd) }} · {{ statusLabel(sandboxMeta) }}
       </span>
     </div>
 
