@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.4.0 - 2026-06-10
+## 0.5.0 - 2026-06-09
+
+### Changed
+
+- Remove desktop notification for agent "bell" notifications to avoid
+  notification overload
+
+## 0.4.0 - 2026-06-09
 
 ### Added
 

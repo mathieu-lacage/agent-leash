@@ -450,24 +450,6 @@ async def run_sandbox(
     return exit_code
 
 
-def _post_notify(sandbox_id: str, server_url: str) -> None:
-    import urllib.request as _r
-    import json as _j
-
-    body = _j.dumps(
-        {"title": "Claude needs input", "body": f"Sandbox {sandbox_id[:8]} is waiting"}
-    ).encode()
-    req = _r.Request(
-        f"{server_url}/api/internal/notify",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        _r.urlopen(req, timeout=0.5)
-    except Exception:
-        pass
-
 
 async def _stream_pty(
     master_fd: int,
@@ -524,26 +506,11 @@ async def _stream_pty(
 
     log_db = await aiosqlite.connect(dbmod.DB_PATH)
 
-    _NOTIF_COOLDOWN = 30.0
-    last_notify_time = 0.0
-
-    def _maybe_notify() -> None:
-        nonlocal last_notify_time
-        now = time.time()
-        if now - last_notify_time < _NOTIF_COOLDOWN:
-            return
-        last_notify_time = now
-        threading.Thread(
-            target=_post_notify, args=(sandbox_id, server_url), daemon=True
-        ).start()
-
     try:
         while True:
             data = await read_queue.get()
             if data is None:
                 break
-            if b"\x07" in data:
-                _maybe_notify()
             if interactive:
                 os.write(1, data)  # local stdout
             ts = int(time.time() * 1000)
