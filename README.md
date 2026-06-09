@@ -13,6 +13,9 @@ $ aleash claude
 Sandbox UI available on http://localhost:7612/
 ```
 
+![aleash demo](docs/demo.gif)
+
+
 ## How it works
 
 - **Filesystem** — [bubblewrap](https://github.com/containers/bubblewrap) restricts the agent to the current working directory. The rest of the filesystem is read-only or hidden.
