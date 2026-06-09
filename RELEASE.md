@@ -24,7 +24,7 @@ $ git tag v$(uv version --short)
 
 4. Push to GitHub (triggers the release workflow):
 ```console
-$ git push github main --tags
+$ git push --tags
 ```
 
 ### What happens next (automated)

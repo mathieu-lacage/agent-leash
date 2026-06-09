@@ -11,6 +11,7 @@ authors = [
 maintainers = [
   {name = "Mathieu Lacage", email = "mathieu.lacage@cutebugs.net"},
 ]
+readme = "README.md"
 description = "Isolated sandbox for AI coding agents"
 license = "MIT"
 license-file = "LICENSE"
@@ -27,6 +28,7 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/mathieu-lacage/agent-leash.git"
 Issues = "https://github.com/mathieu-lacage/agent-leash/issues"
+Changelog = "https://github.com/mathieu-lacage/agent-leash/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = []

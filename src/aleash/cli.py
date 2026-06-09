@@ -53,6 +53,7 @@ def _start_server_background(port: int):
     default=False,
     help="Let the browser control terminal size.",
 )
+@click.version_option(package_name="agent-leash")
 @click.pass_context
 def main(ctx, profile, browser_master):
     """Sandbox runner for AI coding agents."""

@@ -13,7 +13,7 @@ $ aleash claude
 Sandbox UI available on http://localhost:7612/
 ```
 
-![aleash demo](docs/demo.gif)
+![aleash demo](https://raw.githubusercontent.com/mathieu-lacage/agent-leash/main/docs/demo.gif)
 
 
 ## How it works
