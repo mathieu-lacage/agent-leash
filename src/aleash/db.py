@@ -198,7 +198,7 @@ async def get_sandbox(db: aiosqlite.Connection, sandbox_id: str) -> dict | None:
 
 async def get_domain_decisions(db: aiosqlite.Connection, sandbox_id: str) -> list[dict]:
     async with db.execute(
-        "SELECT domain, allowed, decided_at FROM domain_decisions WHERE sandbox_id=? ORDER BY decided_at",
+        "SELECT domain, allowed, decided_at FROM domain_decisions WHERE sandbox_id=? ORDER BY rowid",
         (sandbox_id,),
     ) as cur:
         return [dict(r) for r in await cur.fetchall()]
