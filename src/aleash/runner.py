@@ -28,6 +28,7 @@ from pathlib import Path
 
 from .bwrap import build_bwrap_argv, write_fake_flatpak_info
 from .profiles import Profile
+from .services import SERVICES
 from . import db as dbmod
 
 _DEFAULT_SERVER_URL = "http://localhost:7612"
@@ -42,6 +43,25 @@ def _load_user_binds(cwd: str) -> list[tuple[str, str, str]]:
                 for b in data.get("binds", [])]
     except (OSError, json.JSONDecodeError, KeyError):
         return []
+
+
+def _load_services(cwd: str) -> tuple[list[tuple[str, str, str]], dict[str, str]]:
+    p = Path(cwd) / ".aleash-services.json"
+    try:
+        data = json.loads(p.read_text())
+        config = data.get("services", {})
+    except (OSError, json.JSONDecodeError):
+        return [], {}
+    all_binds: list[tuple[str, str, str]] = []
+    all_env: dict[str, str] = {}
+    for svc_id, svc_def in SERVICES.items():
+        if config.get(svc_id, {}).get("enabled", False):
+            sock = svc_def.resolve_socket()
+            if sock:
+                binds, env = svc_def.bwrap_args(sock)
+                all_binds.extend(binds)
+                all_env.update(env)
+    return all_binds, all_env
 
 # Maps sandbox_id -> master PTY fd (same-process fast path)
 _pty_fds: dict[str, int] = {}
@@ -202,6 +222,7 @@ async def run_sandbox(
         mitm_proc = await _start_mitmdump(proxy_port, sandbox_id, addon_path, server_url)
 
         # build bwrap command
+        svc_binds, svc_env = _load_services(cwd)
         bwrap_argv = build_bwrap_argv(
             profile=profile,
             cwd=cwd,
@@ -211,6 +232,8 @@ async def run_sandbox(
             fake_flatpak_info=fake_flatpak,
             cmd=cmd,
             user_binds=_load_user_binds(cwd),
+            service_binds=svc_binds,
+            service_env=svc_env,
         )
 
         # open PTY

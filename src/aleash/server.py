@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db as dbmod
+from .services import SERVICES, SSH_AGENT_SERVICES
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -213,6 +214,68 @@ async def put_filesystem_binds(sandbox_id: str, req: FilesystemBindsRequest):
     if not s:
         raise HTTPException(404)
     _write_fs_binds_file(s["cwd"], req.binds)
+    return {"ok": True}
+
+
+# -- REST: services --------------------------------------------------------
+
+def _read_services_config(cwd: str) -> dict:
+    p = Path(cwd) / ".aleash-services.json"
+    try:
+        data = json.loads(p.read_text())
+        return data.get("services", {})
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_services_config(cwd: str, services: dict) -> None:
+    data = {
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "services": services,
+    }
+    try:
+        (Path(cwd) / ".aleash-services.json").write_text(json.dumps(data, indent=2) + "\n")
+    except OSError:
+        pass
+
+
+def _services_status(cwd: str) -> list[dict]:
+    config = _read_services_config(cwd)
+    result = []
+    for svc_id, svc_def in SERVICES.items():
+        sock = svc_def.resolve_socket()
+        result.append({
+            "id": svc_id,
+            "label": svc_def.label,
+            "description": svc_def.description,
+            "enabled": config.get(svc_id, {}).get("enabled", False),
+            "available": sock is not None,
+            "socket": sock,
+        })
+    return result
+
+
+@app.get("/api/sandboxes/{sandbox_id}/services")
+async def get_services(sandbox_id: str):
+    s = await dbmod.get_sandbox(_db, sandbox_id)
+    if not s:
+        raise HTTPException(404)
+    return {"services": _services_status(s["cwd"])}
+
+
+class ServicesRequest(BaseModel):
+    services: dict
+
+
+@app.put("/api/sandboxes/{sandbox_id}/services")
+async def put_services(sandbox_id: str, req: ServicesRequest):
+    s = await dbmod.get_sandbox(_db, sandbox_id)
+    if not s:
+        raise HTTPException(404)
+    enabled = {k for k, v in req.services.items() if v.get("enabled", False)}
+    if len(enabled & SSH_AGENT_SERVICES) > 1:
+        raise HTTPException(422, "ssh_agent and onepassword are mutually exclusive")
+    _write_services_config(s["cwd"], req.services)
     return {"ok": True}
 
 

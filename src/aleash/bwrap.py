@@ -38,10 +38,6 @@ def _uid() -> str:
     return str(os.getuid())
 
 
-def _xdg_runtime() -> str:
-    return os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{_uid()}")
-
-
 def build_bwrap_argv(
     profile: Profile,
     cwd: str,
@@ -51,10 +47,10 @@ def build_bwrap_argv(
     fake_flatpak_info: str,
     cmd: list[str],
     user_binds: list[tuple[str, str, str]] | None = None,
+    service_binds: list[tuple[str, str, str]] | None = None,
+    service_env: dict[str, str] | None = None,
 ) -> list[str]:
     uid = _uid()
-    xdg_runtime = _xdg_runtime()
-    podman_sock = f"{xdg_runtime}/podman/podman.sock"
     ca_dest = "/tmp/aleash-ca.pem"
     proxy_url = f"http://127.0.0.1:{proxy_port}"
 
@@ -94,7 +90,6 @@ def build_bwrap_argv(
         "--setenv", "REQUESTS_CA_BUNDLE", ca_dest,
         "--setenv", "NODE_EXTRA_CA_CERTS", ca_dest,
         "--setenv", "DBUS_SESSION_BUS_ADDRESS", f"unix:path={xdg_proxy_sock}",
-        "--setenv", "CONTAINER_HOST", f"unix://{podman_sock}",
     ]
 
     # Collect content binds then sort shortest-dest-first so parent RO mounts
@@ -107,10 +102,6 @@ def build_bwrap_argv(
     local_bin = Path.home() / ".local" / "bin"
     if local_bin.is_dir():
         content.append(("--ro-bind", str(local_bin), str(local_bin)))
-
-    # podman socket
-    if Path(podman_sock).exists():
-        content.append(("--bind", podman_sock, podman_sock))
 
     # working directory (writable)
     content.append(("--bind", cwd, cwd))
@@ -134,6 +125,11 @@ def build_bwrap_argv(
         if Path(host).exists():
             content.append(("--bind" if mode == "rw" else "--ro-bind", host, dest))
 
+    # service binds (from .aleash-services.json)
+    for host, dest, mode in (service_binds or []):
+        if Path(host).exists():
+            content.append(("--bind" if mode == "rw" else "--ro-bind", host, dest))
+
     content.sort(key=lambda b: len(b[2]))
     for flag, host, dest in content:
         args += [flag, host, dest]
@@ -142,6 +138,10 @@ def build_bwrap_argv(
 
     # extra env from profile
     for k, v in profile.extra_env.items():
+        args += ["--setenv", k, v]
+
+    # service env vars
+    for k, v in (service_env or {}).items():
         args += ["--setenv", k, v]
 
     # auto-bind the command binary if it lives outside already-mounted paths
