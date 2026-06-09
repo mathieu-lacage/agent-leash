@@ -1,32 +1,44 @@
 import asyncio
 import os
-import signal
+import socket
 import sys
-import time
 from pathlib import Path
 
 import click
 
 DAEMON_DIR = Path.home() / ".aleash"
-PID_FILE = DAEMON_DIR / "server.pid"
-PORT = 7612
 
 
-def _server_running() -> int | None:
-    if not PID_FILE.exists():
-        return None
-    pid = int(PID_FILE.read_text().strip())
-    try:
-        os.kill(pid, 0)
-        return pid
-    except ProcessLookupError:
-        PID_FILE.unlink(missing_ok=True)
-        return None
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _start_server_background(port: int):
+    import threading
+    import uvicorn
+    from .server import app as _app
+
+    ready = threading.Event()
+    config = uvicorn.Config(_app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+
+    orig_startup = server.startup
+
+    async def _patched_startup(sockets=None):
+        await orig_startup(sockets)
+        ready.set()
+
+    server.startup = _patched_startup
+    threading.Thread(target=lambda: asyncio.run(server.serve()), daemon=True).start()
+    ready.wait(timeout=5.0)
+    return server
 
 
 @click.group()
-@click.option("--profile", default=None, metavar="PROFILE", help="Override sandbox profile for the agent command.")
-@click.option("--browser-master", is_flag=True, default=False, help="Let the browser control terminal size (default: local terminal is master).")
+@click.option("--profile", default=None, metavar="PROFILE", help="Override sandbox profile.")
+@click.option("--browser-master", is_flag=True, default=False, help="Let the browser control terminal size.")
 @click.pass_context
 def main(ctx, profile, browser_master):
     """Sandbox runner for AI coding agents."""
@@ -35,99 +47,21 @@ def main(ctx, profile, browser_master):
     ctx.obj["browser_master"] = browser_master
 
 
-@main.command()
-@click.option("--port", default=PORT, show_default=True)
-@click.option("--foreground", "-f", is_flag=True, help="Run in foreground (don't daemonize)")
-def start(port: int, foreground: bool):
-    """Start the sandbox daemon."""
-    if _server_running():
-        click.echo(f"Sandbox already running. UI: http://localhost:{port}/")
-        return
-
-    DAEMON_DIR.mkdir(parents=True, exist_ok=True)
-
-    if foreground:
-        import subprocess
-        subprocess.Popen(["xdg-open", f"http://localhost:{port}/"],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        _run_server(port)
-    else:
-        _daemonize(port)
-
-
-def _run_server(port: int):
-    import uvicorn
-    from .server import app
-    PID_FILE.write_text(str(os.getpid()))
-    try:
-        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
-    finally:
-        PID_FILE.unlink(missing_ok=True)
-
-
-def _daemonize(port: int):
-    pid = os.fork()
-    if pid > 0:
-        # parent: wait briefly for server to start, then return
-        time.sleep(0.8)
-        click.echo(f"Sandbox UI available on http://localhost:{port}/")
-        import subprocess
-        subprocess.Popen(["xdg-open", f"http://localhost:{port}/"],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return
-
-    # child: become daemon
-    os.setsid()
-    pid2 = os.fork()
-    if pid2 > 0:
-        os._exit(0)
-
-    # grandchild: redirect stdio
-    devnull = os.open(os.devnull, os.O_RDWR)
-    os.dup2(devnull, 0)
-    log_path = DAEMON_DIR / "server.log"
-    log_fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
-    os.dup2(log_fd, 1)
-    os.dup2(log_fd, 2)
-    os.close(devnull)
-    os.close(log_fd)
-
-    _run_server(port)
-    os._exit(0)
-
-
-@main.command()
-def stop():
-    """Stop the sandbox daemon."""
-    pid = _server_running()
-    if not pid:
-        click.echo("Sandbox is not running.")
-        return
-    os.kill(pid, signal.SIGTERM)
-    # wait up to 3s
-    for _ in range(30):
-        time.sleep(0.1)
-        if not _server_running():
-            click.echo("Sandbox stopped.")
-            return
-    click.echo("Sandbox did not stop in time; sending SIGKILL.")
-    os.kill(pid, signal.SIGKILL)
-
-
 @main.command(name="list")
 def list_sandboxes():
     """List sandboxes."""
-    import httpx
-    try:
-        r = httpx.get(f"http://localhost:{PORT}/api/sandboxes", timeout=3)
-        sandboxes = r.json()
-    except Exception:
-        click.echo("Sandbox server not running. Try: aleash start")
-        return
-    if not sandboxes:
+    import sqlite3
+    from .db import DB_PATH
+    if not DB_PATH.exists():
         click.echo("No sandboxes yet.")
         return
-    for s in sandboxes:
+    with sqlite3.connect(str(DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM sandboxes ORDER BY started_at DESC").fetchall()
+    if not rows:
+        click.echo("No sandboxes yet.")
+        return
+    for s in rows:
         status = "running" if s["ended_at"] is None else f"exited({s['exit_code']})"
         click.echo(f"{s['id'][:8]}  {status:12}  {s['profile']:10}  {s['cwd']}")
 
@@ -149,10 +83,19 @@ def _run_agent(profile_name: str, extra_args: tuple, profile_override: str | Non
         click.echo(f"'{profile_name}' not found on PATH", err=True)
         sys.exit(1)
 
-    exit_code = asyncio.run(run_sandbox(
-        profile=profile, cwd=os.getcwd(),
-        cmd=[binary, *extra_args], browser_master=browser_master,
-    ))
+    port = _free_port()
+    server = _start_server_background(port)
+    import subprocess
+    subprocess.Popen(["xdg-open", f"http://localhost:{port}/"],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        exit_code = asyncio.run(run_sandbox(
+            profile=profile, cwd=os.getcwd(),
+            cmd=[binary, *extra_args], browser_master=browser_master,
+            server_url=f"http://localhost:{port}",
+        ))
+    finally:
+        server.should_exit = True
     sys.exit(exit_code)
 
 
@@ -185,8 +128,17 @@ def run_cmd(ctx, cmd):
         click.echo(f"Unknown profile '{profile}'. Available: {', '.join(PROFILES)}", err=True)
         sys.exit(1)
 
-    exit_code = asyncio.run(run_sandbox(
-        profile=PROFILES[profile], cwd=os.getcwd(),
-        cmd=list(cmd), browser_master=ctx.obj.get("browser_master", False),
-    ))
+    port = _free_port()
+    server = _start_server_background(port)
+    import subprocess
+    subprocess.Popen(["xdg-open", f"http://localhost:{port}/"],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        exit_code = asyncio.run(run_sandbox(
+            profile=PROFILES[profile], cwd=os.getcwd(),
+            cmd=list(cmd), browser_master=ctx.obj.get("browser_master", False),
+            server_url=f"http://localhost:{port}",
+        ))
+    finally:
+        server.should_exit = True
     sys.exit(exit_code)

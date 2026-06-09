@@ -29,7 +29,7 @@ from .bwrap import build_bwrap_argv, write_fake_flatpak_info
 from .profiles import Profile
 from . import db as dbmod
 
-SERVER_URL = "http://localhost:7612"
+_DEFAULT_SERVER_URL = "http://localhost:7612"
 MLEASH_DIR = Path.home() / ".aleash"
 
 # Maps sandbox_id -> master PTY fd (same-process fast path)
@@ -45,11 +45,11 @@ def _pty_input_sock_path(sandbox_id: str) -> Path:
 
 
 async def _push_size_to_server(sandbox_id: str, cols: int, rows: int,
-                                browser_master: bool = False) -> None:
+                                server_url: str, browser_master: bool = False) -> None:
     try:
         import httpx
         async with httpx.AsyncClient(timeout=1.0) as c:
-            await c.post(f"{SERVER_URL}/api/internal/terminal-resize", json={
+            await c.post(f"{server_url}/api/internal/terminal-resize", json={
                 "id": sandbox_id, "cols": cols, "rows": rows,
                 "browser_master": browser_master,
             })
@@ -129,14 +129,15 @@ async def _ensure_mitmproxy_ca() -> Path:
     return ca
 
 
-async def _start_mitmdump(proxy_port: int, sandbox_id: str, addon_path: str) -> asyncio.subprocess.Process:
+async def _start_mitmdump(proxy_port: int, sandbox_id: str, addon_path: str,
+                          server_url: str) -> asyncio.subprocess.Process:
     proc = await asyncio.create_subprocess_exec(
         "mitmdump",
         "--listen-host", "127.0.0.1",
         "--listen-port", str(proxy_port),
         "-s", addon_path,
         "--set", f"sandbox_id={sandbox_id}",
-        "--set", f"server_url={SERVER_URL}",
+        "--set", f"server_url={server_url}",
         "--quiet",
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -152,6 +153,7 @@ async def run_sandbox(
     cmd: list[str],
     sandbox_id: str | None = None,
     browser_master: bool = False,
+    server_url: str = _DEFAULT_SERVER_URL,
 ) -> int:
     """Run agent in sandbox. Returns exit code."""
     sandbox_id = sandbox_id or str(uuid.uuid4())
@@ -165,22 +167,13 @@ async def run_sandbox(
     xdg_proxy_sock = str(Path(tmpdir) / "xdg-proxy.sock")
     fake_flatpak = write_fake_flatpak_info(tmpdir)
 
-    # register in DB via server HTTP (server may or may not be running)
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=2.0) as c:
-            await c.post(f"{SERVER_URL}/api/internal/sandbox-start", json={
-                "id": sandbox_id, "profile": profile.name,
-                "cwd": cwd, "cmd": " ".join(cmd), "started_at": started_at,
-                "browser_master": browser_master,
-            })
-    except Exception:
-        # server not running — write directly to DB
-        import aiosqlite
-        async with aiosqlite.connect(dbmod.DB_PATH) as direct_db:
-            direct_db.row_factory = aiosqlite.Row
-            await dbmod.init_db(direct_db)
-            await dbmod.insert_sandbox(direct_db, sandbox_id, profile.name, cwd, " ".join(cmd), started_at)
+    import httpx
+    async with httpx.AsyncClient(timeout=2.0) as c:
+        await c.post(f"{server_url}/api/internal/sandbox-start", json={
+            "id": sandbox_id, "profile": profile.name,
+            "cwd": cwd, "cmd": " ".join(cmd), "started_at": started_at,
+            "browser_master": browser_master,
+        })
 
     proxy_port = _free_port()
     ca_cert = await _ensure_mitmproxy_ca()
@@ -194,7 +187,7 @@ async def run_sandbox(
         xdg_proc = await _start_xdg_dbus_proxy(xdg_proxy_sock)
 
         # start mitmproxy
-        mitm_proc = await _start_mitmdump(proxy_port, sandbox_id, addon_path)
+        mitm_proc = await _start_mitmdump(proxy_port, sandbox_id, addon_path, server_url)
 
         # build bwrap command
         bwrap_argv = build_bwrap_argv(
@@ -268,7 +261,7 @@ async def run_sandbox(
         _pty_sizes[sandbox_id] = (cols, rows)
 
         # notify server of initial size + mode
-        await _push_size_to_server(sandbox_id, cols, rows, browser_master)
+        await _push_size_to_server(sandbox_id, cols, rows, server_url, browser_master)
 
         # SIGWINCH: track local terminal resize → update PTY + notify server/browser
         loop = asyncio.get_event_loop()
@@ -280,7 +273,7 @@ async def run_sandbox(
                     if c2 > 0 and r2 > 0:
                         fcntl.ioctl(master_fd, termios.TIOCSWINSZ, ts2)
                         _pty_sizes[sandbox_id] = (c2, r2)
-                        asyncio.ensure_future(_push_size_to_server(sandbox_id, c2, r2, False))
+                        asyncio.ensure_future(_push_size_to_server(sandbox_id, c2, r2, server_url, False))
                 except OSError:
                     pass
             loop.add_signal_handler(signal.SIGWINCH, _on_sigwinch)
@@ -357,7 +350,7 @@ async def run_sandbox(
                 body = _json.dumps({"id": sandbox_id, "ended_at": ended_at,
                                     "exit_code": exit_code}).encode()
                 req = _urlreq.Request(
-                    f"{SERVER_URL}/api/internal/sandbox-end",
+                    f"{server_url}/api/internal/sandbox-end",
                     data=body,
                     headers={"Content-Type": "application/json"},
                     method="POST",
