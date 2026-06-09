@@ -13,8 +13,8 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8.1.0
       - name: Check tag matches pyproject.toml version
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
@@ -26,8 +26,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8.1.0
       - name: Install frontend deps
         run: npm --prefix frontend ci
       - uses: pre-commit/action@v3.0.1
@@ -37,8 +37,8 @@ jobs:
     needs: [validate, lint]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8.1.0
       - name: Build distribution
         run: uv build
       - uses: actions/upload-artifact@v4
