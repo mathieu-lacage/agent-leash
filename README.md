@@ -4,20 +4,16 @@ Sandbox runner for AI coding agents. Restricts filesystem access to the current
 directory and intercepts all network traffic with interactive per-domain approval.
 
 ```console
-$ pipx install agent-leach
-# Start the web UI
-$ aleash start
-Sandbox UI available on http://localhost:7612/
+$ pipx install agent-leash
 $ aleash claude
-# Stop the web UI
-$ aleash stop
+Sandbox UI available on http://localhost:7612/
 ```
 
 ## How it works
 
 - **Filesystem** — [bubblewrap](https://github.com/containers/bubblewrap) restricts the agent to the current working directory. The rest of the filesystem is read-only or hidden.
 - **Network** — [mitmproxy](https://mitmproxy.org/) intercepts all outbound HTTPS. Each new domain triggers a browser popup (and desktop notification). You choose: always allow, allow once, always block, or block once.
-- **Web UI** — Vue 3 + xterm.js frontend served on `localhost:7612`. Shows live terminal output, domain decisions, and session history with full-text search.
+- **Web UI** — Vue 3 + xterm.js frontend served on `localhost:7612`. Shows live terminal output, domain decisions
 
 ## Requirements
 
@@ -56,7 +52,7 @@ aleash --profile generic claude   # run claude with the generic profile
 
 | Profile | What it binds |
 |---------|--------------|
-| `claude` | `~/.claude`, `~/.claude.json`, `~/.gitconfig` |
+| `claude` | `~/.claude`, `~/.claude.json`, `~/.gitconfig`, `~/.local/share/claude` |
 | `opencode` | `~/.opencode`, `~/.gitconfig`, and opencode config/cache dirs |
 | `generic` | nothing extra |
 
@@ -64,16 +60,14 @@ aleash --profile generic claude   # run claude with the generic profile
 
 ## Data
 
-All state lives in `~/.aleash/`:
+All state lives in `CWD/.aleash/`:
 
 | Path | Content |
 |------|---------|
-| `~/.aleash/data.db` | SQLite: sessions, terminal logs, domain decisions |
-| `~/.aleash/server.pid` | daemon PID |
-| `~/.aleash/server.log` | daemon log |
+| `CWD/.aleash/data.db` | SQLite: sessions, terminal logs, domain decisions |
 | `~/.mitmproxy/` | mitmproxy CA cert (auto-generated on first run) |
 
-Delete `~/.aleash/data.db` to reset all history.
+Delete `CWD/.aleash/data.db` to reset all history.
 
 ## Contributing
 
