@@ -94,6 +94,7 @@ def _run_agent(profile_name: str, extra_args: tuple, profile_override: str | Non
 
     port = _free_port()
     server = _start_server_background(port)
+    click.echo(f"Sandbox UI available on http://localhost:{port}/")
     import subprocess
     subprocess.Popen(["xdg-open", f"http://localhost:{port}/"],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -139,6 +140,7 @@ def run_cmd(ctx, cmd):
 
     port = _free_port()
     server = _start_server_background(port)
+    click.echo(f"Sandbox UI available on http://localhost:{port}/")
     import subprocess
     subprocess.Popen(["xdg-open", f"http://localhost:{port}/"],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
