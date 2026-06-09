@@ -152,6 +152,70 @@ async def get_terminal_log(sandbox_id: str):
     return [{"ts": r["ts"], "data": base64.b64encode(r["data"]).decode()} for r in rows]
 
 
+# -- REST: filesystem binds ------------------------------------------------
+
+def _profile_binds(profile_name: str, cwd: str) -> list[dict]:
+    from .profiles import PROFILES
+    p = PROFILES.get(profile_name)
+    if p is None:
+        return []
+    result = [{"host": h, "dest": d, "mode": "rw"} for h, d in p.extra_binds]
+    result += [{"host": h, "dest": d, "mode": "ro"} for h, d in p.extra_ro_binds]
+    for rel in p.ensure_home_dirs:
+        result.append({"host": str(Path.home() / rel), "dest": str(Path(cwd) / rel), "mode": "rw"})
+    return result
+
+
+def _read_fs_binds_file(cwd: str) -> list[dict]:
+    p = Path(cwd) / ".aleash-fs-binds.json"
+    try:
+        data = json.loads(p.read_text())
+        return [{"host": b["host"], "dest": b.get("dest", b["host"]), "mode": b.get("mode", "ro")}
+                for b in data.get("binds", [])]
+    except (OSError, json.JSONDecodeError, KeyError):
+        return []
+
+
+def _write_fs_binds_file(cwd: str, binds: list[dict]) -> None:
+    data = {
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "binds": binds,
+    }
+    try:
+        (Path(cwd) / ".aleash-fs-binds.json").write_text(json.dumps(data, indent=2) + "\n")
+    except OSError:
+        pass
+
+
+@app.get("/api/sandboxes/{sandbox_id}/filesystem")
+async def get_filesystem_binds(sandbox_id: str):
+    from .bwrap import SYSTEM_BIND_DISPLAY
+    s = await dbmod.get_sandbox(_db, sandbox_id)
+    if not s:
+        raise HTTPException(404)
+    system = [{"host": h, "dest": d, "mode": m}
+              for h, d, m in SYSTEM_BIND_DISPLAY if Path(h).exists()]
+    system.append({"host": s["cwd"], "dest": s["cwd"], "mode": "rw"})
+    return {
+        "system": system,
+        "profile": _profile_binds(s["profile"], s["cwd"]),
+        "user": _read_fs_binds_file(s["cwd"]),
+    }
+
+
+class FilesystemBindsRequest(BaseModel):
+    binds: list[dict]
+
+
+@app.put("/api/sandboxes/{sandbox_id}/filesystem")
+async def put_filesystem_binds(sandbox_id: str, req: FilesystemBindsRequest):
+    s = await dbmod.get_sandbox(_db, sandbox_id)
+    if not s:
+        raise HTTPException(404)
+    _write_fs_binds_file(s["cwd"], req.binds)
+    return {"ok": True}
+
+
 # -- REST: proxy approval ---------------------------------------------------
 
 class CheckRequest(BaseModel):

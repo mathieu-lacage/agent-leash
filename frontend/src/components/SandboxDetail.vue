@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import TerminalPane from './TerminalPane.vue'
 import DomainsPane from './DomainsPane.vue'
+import FilesystemPane from './FilesystemPane.vue'
 
 interface Sandbox {
   id: string
@@ -14,8 +15,9 @@ interface Sandbox {
 }
 
 const props = defineProps<{ sandboxId: string }>()
-const tab = ref<'terminal' | 'domains'>('terminal')
+const tab = ref<'terminal' | 'domains' | 'filesystem'>('terminal')
 const sandboxMeta = ref<Sandbox | null>(null)
+const isRunning = computed(() => sandboxMeta.value != null && sandboxMeta.value.ended_at == null)
 
 watch(() => props.sandboxId, async (id) => {
   tab.value = 'terminal'
@@ -38,6 +40,7 @@ function shortCwd(cwd: string) {
     <div class="tabs">
       <button class="tab-btn" :class="{ active: tab === 'terminal' }" @click="tab = 'terminal'">Terminal</button>
       <button class="tab-btn" :class="{ active: tab === 'domains' }" @click="tab = 'domains'">Domains</button>
+      <button class="tab-btn" :class="{ active: tab === 'filesystem' }" @click="tab = 'filesystem'">Filesystem</button>
       <span v-if="sandboxMeta" style="margin-left:auto;padding:10px 16px;font-size:0.8rem;color:#555;cursor:default" :title="sandboxMeta.cwd">
         {{ sandboxMeta.profile }} · {{ shortCwd(sandboxMeta.cwd) }} · {{ statusLabel(sandboxMeta) }}
       </span>
@@ -45,5 +48,6 @@ function shortCwd(cwd: string) {
 
     <TerminalPane v-show="tab === 'terminal'" :sandbox-id="sandboxId" :active="tab === 'terminal'" />
     <DomainsPane v-show="tab === 'domains'" :sandbox-id="sandboxId" :active="tab === 'domains'" />
+    <FilesystemPane v-show="tab === 'filesystem'" :sandbox-id="sandboxId" :active="tab === 'filesystem'" :running="isRunning" />
   </div>
 </template>

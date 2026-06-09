@@ -1,1 +1,1 @@
-{"root":["./src/main.ts","./src/App.vue","./src/components/DomainApproval.vue","./src/components/DomainsPane.vue","./src/components/SandboxDetail.vue","./src/components/TerminalPane.vue"],"version":"5.9.3"}
+{"root":["./src/main.ts","./src/App.vue","./src/components/DomainApproval.vue","./src/components/DomainsPane.vue","./src/components/FilesystemPane.vue","./src/components/SandboxDetail.vue","./src/components/TerminalPane.vue"],"version":"5.9.3"}

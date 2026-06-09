@@ -10,6 +10,7 @@ Orchestrates a single sandbox run:
 
 import asyncio
 import fcntl
+import json
 import os
 import pty
 import select
@@ -31,6 +32,16 @@ from . import db as dbmod
 
 _DEFAULT_SERVER_URL = "http://localhost:7612"
 MLEASH_DIR = Path.home() / ".aleash"
+
+
+def _load_user_binds(cwd: str) -> list[tuple[str, str, str]]:
+    p = Path(cwd) / ".aleash-fs-binds.json"
+    try:
+        data = json.loads(p.read_text())
+        return [(b["host"], b.get("dest", b["host"]), b.get("mode", "ro"))
+                for b in data.get("binds", [])]
+    except (OSError, json.JSONDecodeError, KeyError):
+        return []
 
 # Maps sandbox_id -> master PTY fd (same-process fast path)
 _pty_fds: dict[str, int] = {}
@@ -199,6 +210,7 @@ async def run_sandbox(
             ca_cert_path=str(ca_cert),
             fake_flatpak_info=fake_flatpak,
             cmd=cmd,
+            user_binds=_load_user_binds(cwd),
         )
 
         # open PTY

@@ -1,13 +1,24 @@
 import os
-import shutil
 from pathlib import Path
-from typing import Any
 
 from .profiles import Profile
 
 # Prefixes already mounted inside the sandbox — binary paths under these need no extra bind.
 _MOUNTED_PREFIXES = ("/usr", "/etc", "/lib", "/lib64", "/lib32", "/sys", "/run", "/dev", "/proc",
                      str(Path.home() / ".local" / "bin"))
+
+# Real host-path bind mounts from the fixed section of build_bwrap_argv.
+# Excludes --tmpfs, --proc, --symlink, and internal sockets/certs.
+# Used by the server to display system mounts without duplicating this list.
+SYSTEM_BIND_DISPLAY: list[tuple[str, str, str]] = [
+    ("/dev",   "/dev",   "rw"),
+    ("/usr",   "/usr",   "ro"),
+    ("/etc",   "/etc",   "ro"),
+    ("/lib",   "/lib",   "ro"),
+    ("/lib64", "/lib64", "ro"),
+    ("/lib32", "/lib32", "ro"),
+    ("/sys",   "/sys",   "ro"),
+]
 
 
 def _outside_mounts(path: str) -> bool:
@@ -39,6 +50,7 @@ def build_bwrap_argv(
     ca_cert_path: str,
     fake_flatpak_info: str,
     cmd: list[str],
+    user_binds: list[tuple[str, str, str]] | None = None,
 ) -> list[str]:
     uid = _uid()
     xdg_runtime = _xdg_runtime()
@@ -72,9 +84,6 @@ def build_bwrap_argv(
         "--ro-bind", fake_flatpak_info, f"/run/user/{uid}/flatpak-info",
         # xdg-dbus-proxy socket
         "--bind", xdg_proxy_sock, xdg_proxy_sock,
-        # working directory (writable)
-        "--bind", cwd, cwd,
-        "--chdir", cwd,
         # environment
 
         "--setenv", "http_proxy", proxy_url,
@@ -88,32 +97,48 @@ def build_bwrap_argv(
         "--setenv", "CONTAINER_HOST", f"unix://{podman_sock}",
     ]
 
+    # Collect content binds then sort shortest-dest-first so parent RO mounts
+    # are always applied before child RW mounts. bwrap's --ro-bind uses
+    # MS_RDONLY|MS_REC which would retroactively RO any child mount that
+    # already existed — sorting prevents that.
+    content: list[tuple[str, str, str]] = []  # (flag, host, dest)
+
     # ~/.local/bin — user-installed binaries (pipx, npm, cargo, etc.)
     local_bin = Path.home() / ".local" / "bin"
     if local_bin.is_dir():
-        args += ["--ro-bind", str(local_bin), str(local_bin)]
+        content.append(("--ro-bind", str(local_bin), str(local_bin)))
 
     # podman socket
     if Path(podman_sock).exists():
-        args += ["--bind", podman_sock, podman_sock]
+        content.append(("--bind", podman_sock, podman_sock))
+
+    # working directory (writable)
+    content.append(("--bind", cwd, cwd))
 
     # profile extra binds
     for host, dest in profile.extra_binds:
-        hp = Path(host)
-        if hp.exists():
-            args += ["--bind", host, dest]
-
+        if Path(host).exists():
+            content.append(("--bind", host, dest))
     for host, dest in profile.extra_ro_binds:
-        hp = Path(host)
-        if hp.exists():
-            args += ["--ro-bind", host, dest]
+        if Path(host).exists():
+            content.append(("--ro-bind", host, dest))
 
     # profile ensure_home_dirs: bind real dirs (create if needed) into cwd/subpath
     for rel in profile.ensure_home_dirs:
         host_path = Path.home() / rel
         host_path.mkdir(parents=True, exist_ok=True)
-        dest = str(Path(cwd) / rel)
-        args += ["--bind", str(host_path), dest]
+        content.append(("--bind", str(host_path), str(Path(cwd) / rel)))
+
+    # user-configured extra binds (from .aleash-fs-binds.json)
+    for host, dest, mode in (user_binds or []):
+        if Path(host).exists():
+            content.append(("--bind" if mode == "rw" else "--ro-bind", host, dest))
+
+    content.sort(key=lambda b: len(b[2]))
+    for flag, host, dest in content:
+        args += [flag, host, dest]
+
+    args += ["--chdir", cwd]
 
     # extra env from profile
     for k, v in profile.extra_env.items():
