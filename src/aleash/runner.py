@@ -18,6 +18,7 @@ import shutil
 import signal
 import socket
 import struct
+import sys
 import tempfile
 import termios
 import threading
@@ -131,6 +132,19 @@ def _mitmproxy_ca_cert() -> Path:
     return Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
 
 
+def _mitmdump_bin() -> str:
+    # mitmproxy installs mitmdump in the same venv bin/ as our Python interpreter.
+    # Using sys.executable ensures we find it even when installed via pipx,
+    # where only the main entry point is on PATH.
+    candidate = Path(sys.executable).parent / "mitmdump"
+    if candidate.exists():
+        return str(candidate)
+    found = shutil.which("mitmdump")
+    if found:
+        return found
+    raise FileNotFoundError("mitmdump not found; ensure mitmproxy is installed")
+
+
 async def _start_xdg_dbus_proxy(sock_path: str) -> asyncio.subprocess.Process:
     dbus_addr = os.environ.get("DBUS_SESSION_BUS_ADDRESS", "")
     proc = await asyncio.create_subprocess_exec(
@@ -159,7 +173,7 @@ async def _ensure_mitmproxy_ca() -> Path:
     if not ca.exists():
         # run mitmdump briefly to generate certs
         proc = await asyncio.create_subprocess_exec(
-            "mitmdump",
+            _mitmdump_bin(),
             "--listen-port",
             "18080",
             "-n",
@@ -179,7 +193,7 @@ async def _start_mitmdump(
     proxy_port: int, sandbox_id: str, addon_path: str, server_url: str
 ) -> asyncio.subprocess.Process:
     proc = await asyncio.create_subprocess_exec(
-        "mitmdump",
+        _mitmdump_bin(),
         "--listen-host",
         "127.0.0.1",
         "--listen-port",

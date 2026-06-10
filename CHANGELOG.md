@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0 - 2026-06-10
+
+### Fixed
+
+- Use correct dependency mitmproxy
+
 ## 0.7.0 - 2026-06-10
 
 ### Fixed
