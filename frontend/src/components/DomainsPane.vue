@@ -7,7 +7,7 @@ interface DomainDecision {
   decided_at: number
 }
 
-const props = defineProps<{ sandboxId: string; active: boolean }>()
+const props = defineProps<{ sandboxId: string; active: boolean; refreshKey?: number }>()
 const domains = ref<DomainDecision[]>([])
 
 async function load(id: string) {
@@ -28,6 +28,7 @@ async function toggle(d: DomainDecision) {
 onMounted(() => load(props.sandboxId))
 watch(() => props.sandboxId, (id) => load(id))
 watch(() => props.active, (a) => { if (a) load(props.sandboxId) })
+watch(() => props.refreshKey, () => load(props.sandboxId))
 
 function ts(ms: number) {
   return new Date(ms).toLocaleTimeString()

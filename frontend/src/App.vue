@@ -11,6 +11,7 @@ interface ApprovalRequest {
 
 const currentSandboxId = ref<string | null>(null)
 const pendingApprovals = ref<ApprovalRequest[]>([])
+const domainRefreshKey = ref(0)
 const showNotifBanner = ref('Notification' in window && Notification.permission === 'default')
 
 let listWs: WebSocket | null = null
@@ -54,6 +55,7 @@ function connectApprovalWs() {
 
 function onApprovalDecided(approvalId: string) {
   pendingApprovals.value = pendingApprovals.value.filter(a => a.approval_id !== approvalId)
+  domainRefreshKey.value++
 }
 
 async function requestNotifPermission() {
@@ -76,7 +78,7 @@ onUnmounted(() => {
 <template>
   <div id="app">
     <main class="main">
-      <SandboxDetail v-if="currentSandboxId" :sandbox-id="currentSandboxId" />
+      <SandboxDetail v-if="currentSandboxId" :sandbox-id="currentSandboxId" :domain-refresh-key="domainRefreshKey" />
       <div v-else class="empty">No running sandbox</div>
     </main>
 

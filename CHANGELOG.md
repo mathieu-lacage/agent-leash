@@ -5,6 +5,7 @@
 ### Fixed
 
 - Use correct dependency mitmproxy
+- Auto-update the domain list upon user policy decisions
 
 ## 0.7.0 - 2026-06-10
 

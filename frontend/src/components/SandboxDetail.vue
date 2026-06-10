@@ -15,7 +15,7 @@ interface Sandbox {
   exit_code: number | null
 }
 
-const props = defineProps<{ sandboxId: string }>()
+const props = defineProps<{ sandboxId: string; domainRefreshKey?: number }>()
 const tab = ref<'terminal' | 'domains' | 'filesystem' | 'services'>('terminal')
 const sandboxMeta = ref<Sandbox | null>(null)
 const isRunning = computed(() => sandboxMeta.value != null && sandboxMeta.value.ended_at == null)
@@ -49,7 +49,7 @@ function shortCwd(cwd: string) {
     </div>
 
     <TerminalPane v-show="tab === 'terminal'" :sandbox-id="sandboxId" :active="tab === 'terminal'" />
-    <DomainsPane v-show="tab === 'domains'" :sandbox-id="sandboxId" :active="tab === 'domains'" />
+    <DomainsPane v-show="tab === 'domains'" :sandbox-id="sandboxId" :active="tab === 'domains'" :refresh-key="domainRefreshKey" />
     <FilesystemPane v-show="tab === 'filesystem'" :sandbox-id="sandboxId" :active="tab === 'filesystem'" :running="isRunning" />
     <ServicesPane v-show="tab === 'services'" :sandbox-id="sandboxId" :active="tab === 'services'" :running="isRunning" />
   </div>
