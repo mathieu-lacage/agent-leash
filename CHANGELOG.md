@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0 - 2026-06-11
+
+### Fixed
+
+- Make LICENSE and CONTRIBUTING.md links work from pypi
+
 ## 0.8.0 - 2026-06-10
 
 ### Fixed

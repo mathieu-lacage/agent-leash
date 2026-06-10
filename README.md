@@ -78,8 +78,8 @@ Delete `CWD/.aleash/data.db` to reset all history.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](https://github.com/mathieu-lacage/agent-leash/blob/main/CONTRIBUTING.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/mathieu-lacage/agent-leash/blob/main/LICENSE).
