@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0 - 2026-06-10
+
+### Fixed
+
+- Add missing dependency mitmdump
+
 ## 0.6.0 - 2026-06-09
 
 ### Changed
