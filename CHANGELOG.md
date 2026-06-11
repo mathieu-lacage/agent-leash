@@ -5,6 +5,7 @@
 ### Fixed
 
 - Make LICENSE and CONTRIBUTING.md links work from pypi
+- Avoid client reconnects to new app sever to avoid spurious notifications
 
 ## 0.8.0 - 2026-06-10
 

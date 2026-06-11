@@ -43,6 +43,8 @@ _sandbox_browser_master: dict[str, bool] = {}
 _db: aiosqlite.Connection | None = None
 # currently running sandbox id (at most one)
 _current_sandbox_id: str | None = None
+# unique ID for this server process, sent to clients so they can detect restarts
+_instance_id = str(uuid.uuid4())
 
 
 @app.on_event("startup")
@@ -496,7 +498,7 @@ async def terminal_ws(websocket: WebSocket, sandbox_id: str):
     cols, rows = _sandbox_sizes.get(sandbox_id, (220, 50))
     bm = _sandbox_browser_master.get(sandbox_id, False)
     await websocket.send_json(
-        {"type": "init", "cols": cols, "rows": rows, "browser_master": bm}
+        {"type": "init", "cols": cols, "rows": rows, "browser_master": bm, "instance_id": _instance_id}
     )
 
     # Replay existing log then track last row id for incremental polling.
@@ -556,6 +558,7 @@ async def terminal_ws(websocket: WebSocket, sandbox_id: str):
 @app.websocket("/ws/approvals")
 async def approvals_ws(websocket: WebSocket):
     await websocket.accept()
+    await websocket.send_json({"type": "hello", "instance_id": _instance_id})
     _approval_sockets.append(websocket)
     try:
         while True:
@@ -575,6 +578,7 @@ async def approvals_ws(websocket: WebSocket):
 @app.websocket("/ws/sandboxes")
 async def sandboxes_ws(websocket: WebSocket):
     await websocket.accept()
+    await websocket.send_json({"type": "hello", "instance_id": _instance_id})
     _sandbox_list_sockets.append(websocket)
     try:
         while True:

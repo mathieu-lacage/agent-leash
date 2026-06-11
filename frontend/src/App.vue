@@ -13,9 +13,11 @@ const currentSandboxId = ref<string | null>(null)
 const pendingApprovals = ref<ApprovalRequest[]>([])
 const domainRefreshKey = ref(0)
 const showNotifBanner = ref('Notification' in window && Notification.permission === 'default')
+const sessionEnded = ref(false)
 
 let listWs: WebSocket | null = null
 let approvalWs: WebSocket | null = null
+let knownInstanceId: string | null = null
 
 function notifyApproval(req: ApprovalRequest) {
   if (document.hasFocus() || Notification.permission !== 'granted') return
@@ -33,24 +35,43 @@ async function fetchCurrentSandbox() {
   currentSandboxId.value = id
 }
 
+function checkInstanceId(id: string): boolean {
+  if (knownInstanceId === null) {
+    knownInstanceId = id
+    return true
+  }
+  if (knownInstanceId !== id) {
+    sessionEnded.value = true
+    return false
+  }
+  return true
+}
+
 function connectListWs() {
+  if (sessionEnded.value) return
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   listWs = new WebSocket(`${proto}://${location.host}/ws/sandboxes`)
-  listWs.onmessage = () => fetchCurrentSandbox()
-  listWs.onclose = () => setTimeout(connectListWs, 2000)
+  listWs.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data)
+    if (msg.type === 'hello') { checkInstanceId(msg.instance_id); return }
+    fetchCurrentSandbox()
+  }
+  listWs.onclose = () => { if (!sessionEnded.value) setTimeout(connectListWs, 2000) }
 }
 
 function connectApprovalWs() {
+  if (sessionEnded.value) return
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   approvalWs = new WebSocket(`${proto}://${location.host}/ws/approvals`)
   approvalWs.onmessage = (ev) => {
     const msg = JSON.parse(ev.data)
+    if (msg.type === 'hello') { if (!checkInstanceId(msg.instance_id)) approvalWs?.close(); return }
     if (msg.type === 'approval_request') {
       pendingApprovals.value.push(msg)
       notifyApproval(msg)
     }
   }
-  approvalWs.onclose = () => setTimeout(connectApprovalWs, 2000)
+  approvalWs.onclose = () => { if (!sessionEnded.value) setTimeout(connectApprovalWs, 2000) }
 }
 
 function onApprovalDecided(approvalId: string) {
@@ -89,6 +110,10 @@ onUnmounted(() => {
       @decided="onApprovalDecided"
     />
 
+    <div v-if="sessionEnded" class="session-ended-banner">
+      This tab belongs to a previous aleash session. Close it or open a new tab.
+    </div>
+
     <div v-if="showNotifBanner" class="notif-banner">
       <span>Enable desktop notifications to be alerted when a sandbox requests network access.</span>
       <button class="notif-btn-enable" @click="requestNotifPermission">Enable notifications</button>
@@ -98,6 +123,19 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.session-ended-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: #5a1a1a;
+  color: #ffcccc;
+  text-align: center;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  z-index: 2000;
+}
+
 .notif-banner {
   position: fixed;
   bottom: 1rem;

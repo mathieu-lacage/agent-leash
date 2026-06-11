@@ -13,6 +13,8 @@ let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let ws: WebSocket | null = null
 let resizeObserver: ResizeObserver | null = null
+let tabInstanceId: string | null = null
+let instanceMismatch = false
 // natural (unscaled) pixel size of .xterm-screen, captured once after term.resize()
 let naturalW = 0
 let naturalH = 0
@@ -80,6 +82,13 @@ function connect(id: string) {
     const msg = JSON.parse(ev.data)
 
     if (msg.type === 'init') {
+      if (tabInstanceId === null) {
+        tabInstanceId = msg.instance_id
+      } else if (tabInstanceId !== msg.instance_id) {
+        instanceMismatch = true
+        ws?.close()
+        return
+      }
       browserMaster.value = msg.browser_master
       if (msg.browser_master) {
         fitAddon!.fit()
@@ -109,6 +118,7 @@ function connect(id: string) {
   }
 
   ws.onclose = () => {
+    if (instanceMismatch) return
     setTimeout(() => {
       if (props.sandboxId === id) connect(id)
     }, 2000)
