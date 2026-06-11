@@ -498,7 +498,13 @@ async def terminal_ws(websocket: WebSocket, sandbox_id: str):
     cols, rows = _sandbox_sizes.get(sandbox_id, (220, 50))
     bm = _sandbox_browser_master.get(sandbox_id, False)
     await websocket.send_json(
-        {"type": "init", "cols": cols, "rows": rows, "browser_master": bm, "instance_id": _instance_id}
+        {
+            "type": "init",
+            "cols": cols,
+            "rows": rows,
+            "browser_master": bm,
+            "instance_id": _instance_id,
+        }
     )
 
     # Replay existing log then track last row id for incremental polling.

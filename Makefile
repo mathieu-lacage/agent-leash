@@ -1,6 +1,9 @@
 .PHONY: all sync frontend
 
-all: sync
+all: sync check
+
+check:
+	uv run pre-commit run --all-files
 
 sync:
 	uv sync
