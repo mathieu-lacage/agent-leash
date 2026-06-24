@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.0 - 2026-06-24
+
+### Fixed
+
+- Network authorization popin:
+  - display stacking order respects FIFO.
+  - do not display more than one request per domain
+  - improve style of display for stacked notifications
+
+
 ## 0.9.0 - 2026-06-11
 
 ### Fixed

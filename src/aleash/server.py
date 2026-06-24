@@ -337,26 +337,28 @@ async def request_approval(req: CheckRequest):
             allowed = False
         return {"action": "allow" if allowed else "block"}
 
-    # first request for this domain: create pending approval + notify
+    # first request for this domain: register future before any await so
+    # concurrent requests see it in _pending_by_domain immediately
     approval_id = str(uuid.uuid4())
-    now = int(time.time() * 1000)
-    await dbmod.create_pending_approval(
-        _get_db(), approval_id, req.sandbox_id, req.domain, now
-    )
-
-    msg = {
-        "type": "approval_request",
-        "approval_id": approval_id,
-        "sandbox_id": req.sandbox_id,
-        "domain": req.domain,
-    }
-    await _broadcast(_approval_sockets, msg)
-
     loop = asyncio.get_event_loop()
     fut: asyncio.Future = loop.create_future()
     _approval_futures[approval_id] = fut
     _pending_by_domain[domain_key] = fut
+
     try:
+        now = int(time.time() * 1000)
+        await dbmod.create_pending_approval(
+            _get_db(), approval_id, req.sandbox_id, req.domain, now
+        )
+
+        msg = {
+            "type": "approval_request",
+            "approval_id": approval_id,
+            "sandbox_id": req.sandbox_id,
+            "domain": req.domain,
+        }
+        await _broadcast(_approval_sockets, msg)
+
         allowed = await asyncio.wait_for(asyncio.shield(fut), timeout=60.0)
     except asyncio.TimeoutError:
         allowed = False

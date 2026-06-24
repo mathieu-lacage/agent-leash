@@ -67,7 +67,7 @@ function connectApprovalWs() {
     const msg = JSON.parse(ev.data)
     if (msg.type === 'hello') { if (!checkInstanceId(msg.instance_id)) approvalWs?.close(); return }
     if (msg.type === 'approval_request') {
-      pendingApprovals.value.push(msg)
+      pendingApprovals.value.unshift(msg)
       notifyApproval(msg)
     }
   }
@@ -107,6 +107,7 @@ onUnmounted(() => {
       v-for="req in pendingApprovals"
       :key="req.approval_id"
       :request="req"
+      :total="pendingApprovals.length"
       @decided="onApprovalDecided"
     />
 

@@ -148,6 +148,34 @@ body {
   padding: 28px 32px;
   min-width: 360px;
   max-width: 480px;
+  position: relative;
+}
+
+.modal.stacked::before {
+  content: '';
+  position: absolute;
+  top: 8px; bottom: -8px; left: 10px; right: 10px;
+  background: #252525;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  z-index: -1;
+}
+
+.modal.stacked::after {
+  content: '';
+  position: absolute;
+  top: 16px; bottom: -16px; left: 20px; right: 20px;
+  background: #2a2a2a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  z-index: -2;
+}
+
+.modal .pending-count {
+  margin-top: 14px;
+  font-size: 0.78rem;
+  color: #a0896a;
+  text-align: right;
 }
 
 .modal h2 {

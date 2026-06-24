@@ -5,7 +5,7 @@ interface ApprovalRequest {
   domain: string
 }
 
-const props = defineProps<{ request: ApprovalRequest }>()
+const props = defineProps<{ request: ApprovalRequest; total: number }>()
 const emit = defineEmits<{ decided: [approvalId: string] }>()
 
 async function decide(approved: boolean, permanent: boolean = true) {
@@ -20,7 +20,7 @@ async function decide(approved: boolean, permanent: boolean = true) {
 
 <template>
   <div class="modal-backdrop">
-    <div class="modal">
+    <div class="modal" :class="{ stacked: total > 1 }">
       <h2>Domain access request</h2>
       <div class="domain">{{ request.domain }}</div>
       <div class="sub">
@@ -33,6 +33,7 @@ async function decide(approved: boolean, permanent: boolean = true) {
         <button class="btn btn-allow" @click="decide(true, false)">Allow once</button>
         <button class="btn btn-always" @click="decide(true, true)">Always allow</button>
       </div>
+      <div v-if="total > 1" class="pending-count">{{ total - 1 }} more pending after this</div>
     </div>
   </div>
 </template>
