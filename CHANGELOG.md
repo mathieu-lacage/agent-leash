@@ -9,6 +9,10 @@
   - do not display more than one request per domain
   - improve style of display for stacked notifications
 
+### Added
+
+- Browser service in services tab.
+
 
 ## 0.9.0 - 2026-06-11
 

@@ -52,7 +52,7 @@ def build_bwrap_argv(
     profile: Profile,
     cwd: str,
     proxy_port: int,
-    xdg_proxy_sock: str,
+    xdg_proxy_sock: str | None,
     ca_cert_path: str,
     fake_flatpak_info: str,
     cmd: list[str],
@@ -114,10 +114,6 @@ def build_bwrap_argv(
         "--ro-bind",
         fake_flatpak_info,
         f"/run/user/{uid}/flatpak-info",
-        # xdg-dbus-proxy socket
-        "--bind",
-        xdg_proxy_sock,
-        xdg_proxy_sock,
         # environment
         "--setenv",
         "http_proxy",
@@ -140,10 +136,16 @@ def build_bwrap_argv(
         "--setenv",
         "NODE_EXTRA_CA_CERTS",
         ca_dest,
-        "--setenv",
-        "DBUS_SESSION_BUS_ADDRESS",
-        f"unix:path={xdg_proxy_sock}",
     ]
+    if xdg_proxy_sock is not None:
+        args += [
+            "--bind",
+            xdg_proxy_sock,
+            xdg_proxy_sock,
+            "--setenv",
+            "DBUS_SESSION_BUS_ADDRESS",
+            f"unix:path={xdg_proxy_sock}",
+        ]
 
     # Collect content binds then sort shortest-dest-first so parent RO mounts
     # are always applied before child RW mounts. bwrap's --ro-bind uses

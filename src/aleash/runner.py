@@ -58,13 +58,23 @@ def _load_services(cwd: str) -> tuple[list[tuple[str, str, str]], dict[str, str]
     all_binds: list[tuple[str, str, str]] = []
     all_env: dict[str, str] = {}
     for svc_id, svc_def in SERVICES.items():
-        if config.get(svc_id, {}).get("enabled", False):
+        if config.get(svc_id, {}).get("enabled", svc_def.default_enabled):
             sock = svc_def.resolve_socket()
             if sock:
                 binds, env = svc_def.bwrap_args(sock)
                 all_binds.extend(binds)
                 all_env.update(env)
     return all_binds, all_env
+
+
+def _browser_service_enabled(cwd: str) -> bool:
+    p = Path(cwd) / ".aleash-services.json"
+    try:
+        data = json.loads(p.read_text())
+        config = data.get("services", {})
+    except (OSError, json.JSONDecodeError):
+        return True
+    return config.get("browser", {}).get("enabled", True)
 
 
 # Maps sandbox_id -> master PTY fd (same-process fast path)
@@ -231,7 +241,7 @@ async def run_sandbox(
     addon_path = str(Path(__file__).parent / "proxy_addon.py")
 
     tmpdir = tempfile.mkdtemp(prefix="aleash-")
-    xdg_proxy_sock = str(Path(tmpdir) / "xdg-proxy.sock")
+    xdg_proxy_sock = str(Path(tmpdir) / "xdg-proxy.sock") if _browser_service_enabled(cwd) else None
     fake_flatpak = write_fake_flatpak_info(tmpdir)
 
     import httpx
@@ -260,8 +270,9 @@ async def run_sandbox(
     master_fd = None
 
     try:
-        # start xdg-dbus-proxy
-        xdg_proc = await _start_xdg_dbus_proxy(xdg_proxy_sock)
+        # start xdg-dbus-proxy (only if browser service is enabled)
+        if xdg_proxy_sock is not None:
+            xdg_proc = await _start_xdg_dbus_proxy(xdg_proxy_sock)
 
         # start mitmproxy
         mitm_proc = await _start_mitmdump(

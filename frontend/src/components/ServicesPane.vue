@@ -70,7 +70,7 @@ watch(() => props.active, (a) => { if (a) load(props.sandboxId) })
           <div class="svc-header">
             <span class="svc-label">{{ svc.label }}</span>
             <span v-if="svc.available && svc.socket" class="svc-socket">{{ svc.socket }}</span>
-            <span v-else class="svc-unavailable">not available</span>
+            <span v-else-if="!svc.available" class="svc-unavailable">not available</span>
           </div>
           <div class="svc-desc">{{ svc.description }}</div>
         </div>

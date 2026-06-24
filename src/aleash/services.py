@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +15,7 @@ class ServiceDef:
     _bwrap_fn: Callable[[str], tuple[list[tuple[str, str, str]], dict[str, str]]] = (
         field(repr=False)
     )
+    default_enabled: bool = False
 
     def resolve_socket(self) -> str | None:
         return self._resolve_fn()
@@ -84,6 +86,10 @@ def _resolve_podman() -> str | None:
     return None
 
 
+def _resolve_browser() -> str | None:
+    return shutil.which("xdg-dbus-proxy")
+
+
 SERVICES: dict[str, ServiceDef] = {
     "ssh_agent": ServiceDef(
         id="ssh_agent",
@@ -119,6 +125,14 @@ SERVICES: dict[str, ServiceDef] = {
         description="Forward Podman daemon socket for container operations",
         _resolve_fn=_resolve_podman,
         _bwrap_fn=lambda s: ([(s, s, "rw")], {"CONTAINER_HOST": f"unix://{s}"}),
+    ),
+    "browser": ServiceDef(
+        id="browser",
+        label="Browser",
+        description="Open URLs from the sandbox in the host browser via xdg-open",
+        _resolve_fn=_resolve_browser,
+        _bwrap_fn=lambda _: ([], {}),
+        default_enabled=True,
     ),
 }
 
