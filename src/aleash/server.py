@@ -279,7 +279,9 @@ def _services_status(cwd: str) -> list[dict]:
                 "id": svc_id,
                 "label": svc_def.label,
                 "description": svc_def.description,
-                "enabled": config.get(svc_id, {}).get("enabled", svc_def.default_enabled),
+                "enabled": config.get(svc_id, {}).get(
+                    "enabled", svc_def.default_enabled
+                ),
                 "available": sock is not None,
                 "socket": sock,
             }

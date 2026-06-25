@@ -241,7 +241,9 @@ async def run_sandbox(
     addon_path = str(Path(__file__).parent / "proxy_addon.py")
 
     tmpdir = tempfile.mkdtemp(prefix="aleash-")
-    xdg_proxy_sock = str(Path(tmpdir) / "xdg-proxy.sock") if _browser_service_enabled(cwd) else None
+    xdg_proxy_sock = (
+        str(Path(tmpdir) / "xdg-proxy.sock") if _browser_service_enabled(cwd) else None
+    )
     fake_flatpak = write_fake_flatpak_info(tmpdir)
 
     import httpx
