@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.12.0 - 2026-06-28
+
+### Fixed
+
+- Handle client disconnected
+
+
+## 0.11.0 - 2026-06-25
+
+### Fixed
+
+- Release pipeline
+
+
 ## 0.10.0 - 2026-06-24
 
 ### Fixed

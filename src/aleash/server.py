@@ -515,10 +515,13 @@ async def terminal_ws(websocket: WebSocket, sandbox_id: str):
     # The runner writes to terminal_log directly (different process), so we
     # cannot use in-process broadcast — we poll the DB instead.
     log_rows = await dbmod.get_terminal_log(_get_db(), sandbox_id)
-    for row in log_rows:
-        await websocket.send_json(
-            {"type": "output", "data": base64.b64encode(row["data"]).decode()}
-        )
+    try:
+        for row in log_rows:
+            await websocket.send_json(
+                {"type": "output", "data": base64.b64encode(row["data"]).decode()}
+            )
+    except WebSocketDisconnect:
+        return
     last_id = await dbmod.get_terminal_log_last_id(_get_db(), sandbox_id)
 
     async def _poll_output():
@@ -530,9 +533,12 @@ async def terminal_ws(websocket: WebSocket, sandbox_id: str):
             )
             for row in new_rows:
                 last_id = row["id"]
-                await websocket.send_json(
-                    {"type": "output", "data": base64.b64encode(row["data"]).decode()}
-                )
+                try:
+                    await websocket.send_json(
+                        {"type": "output", "data": base64.b64encode(row["data"]).decode()}
+                    )
+                except WebSocketDisconnect:
+                    return
 
     async def _recv_input():
         while True:
