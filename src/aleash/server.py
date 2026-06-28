@@ -535,7 +535,10 @@ async def terminal_ws(websocket: WebSocket, sandbox_id: str):
                 last_id = row["id"]
                 try:
                     await websocket.send_json(
-                        {"type": "output", "data": base64.b64encode(row["data"]).decode()}
+                        {
+                            "type": "output",
+                            "data": base64.b64encode(row["data"]).decode(),
+                        }
                     )
                 except WebSocketDisconnect:
                     return
