@@ -77,6 +77,16 @@ def _browser_service_enabled(cwd: str) -> bool:
     return config.get("browser", {}).get("enabled", True)
 
 
+def _notifications_service_enabled(cwd: str) -> bool:
+    p = Path(cwd) / ".aleash-services.json"
+    try:
+        data = json.loads(p.read_text())
+        config = data.get("services", {})
+    except (OSError, json.JSONDecodeError):
+        return True
+    return config.get("notifications", {}).get("enabled", True)
+
+
 # Maps sandbox_id -> master PTY fd (same-process fast path)
 _pty_fds: dict[str, int] = {}
 # Maps sandbox_id -> (cols, rows) current PTY size
@@ -155,15 +165,20 @@ def _mitmdump_bin() -> str:
     raise FileNotFoundError("mitmdump not found; ensure mitmproxy is installed")
 
 
-async def _start_xdg_dbus_proxy(sock_path: str) -> asyncio.subprocess.Process:
+async def _start_xdg_dbus_proxy(
+    sock_path: str, browser: bool = False, notifications: bool = False
+) -> asyncio.subprocess.Process:
     dbus_addr = os.environ.get("DBUS_SESSION_BUS_ADDRESS", "")
+    proxy_args = ["xdg-dbus-proxy", dbus_addr, sock_path, "--filter"]
+    if notifications:
+        proxy_args += ["--talk=org.freedesktop.Notifications"]
+    if browser:
+        proxy_args += [
+            "--talk=org.freedesktop.portal.Desktop",
+            "--call=org.freedesktop.portal.Desktop.OpenURI=*",
+        ]
     proc = await asyncio.create_subprocess_exec(
-        "xdg-dbus-proxy",
-        dbus_addr,
-        sock_path,
-        "--filter",
-        "--talk=org.freedesktop.portal.Desktop",
-        "--call=org.freedesktop.portal.OpenURI=*",
+        *proxy_args,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )
@@ -241,8 +256,12 @@ async def run_sandbox(
     addon_path = str(Path(__file__).parent / "proxy_addon.py")
 
     tmpdir = tempfile.mkdtemp(prefix="aleash-")
+    browser_enabled = _browser_service_enabled(cwd)
+    notifications_enabled = _notifications_service_enabled(cwd)
     xdg_proxy_sock = (
-        str(Path(tmpdir) / "xdg-proxy.sock") if _browser_service_enabled(cwd) else None
+        str(Path(tmpdir) / "xdg-proxy.sock")
+        if (browser_enabled or notifications_enabled)
+        else None
     )
     fake_flatpak = write_fake_flatpak_info(tmpdir)
 
@@ -272,9 +291,12 @@ async def run_sandbox(
     master_fd = None
 
     try:
-        # start xdg-dbus-proxy (only if browser service is enabled)
         if xdg_proxy_sock is not None:
-            xdg_proc = await _start_xdg_dbus_proxy(xdg_proxy_sock)
+            xdg_proc = await _start_xdg_dbus_proxy(
+                xdg_proxy_sock,
+                browser=browser_enabled,
+                notifications=notifications_enabled,
+            )
 
         # start mitmproxy
         mitm_proc = await _start_mitmdump(

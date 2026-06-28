@@ -134,6 +134,14 @@ SERVICES: dict[str, ServiceDef] = {
         _bwrap_fn=lambda _: ([], {}),
         default_enabled=True,
     ),
+    "notifications": ServiceDef(
+        id="notifications",
+        label="Notifications",
+        description="Forward desktop notifications from sandbox to host via notify-send",
+        _resolve_fn=_resolve_browser,
+        _bwrap_fn=lambda _: ([], {}),
+        default_enabled=True,
+    ),
 }
 
 # Services that set SSH_AUTH_SOCK — only one may be enabled at a time

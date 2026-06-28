@@ -5,6 +5,7 @@
 ### Fixed
 
 - Handle client disconnected
+- Add support for desktop notifications as a service
 
 
 ## 0.11.0 - 2026-06-25
