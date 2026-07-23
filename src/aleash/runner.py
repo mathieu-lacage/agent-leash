@@ -87,6 +87,16 @@ def _notifications_service_enabled(cwd: str) -> bool:
     return config.get("notifications", {}).get("enabled", True)
 
 
+def _podman_service_enabled(cwd: str) -> bool:
+    p = Path(cwd) / ".aleash-services.json"
+    try:
+        data = json.loads(p.read_text())
+        config = data.get("services", {})
+    except (OSError, json.JSONDecodeError):
+        return False
+    return config.get("podman", {}).get("enabled", SERVICES["podman"].default_enabled)
+
+
 # Maps sandbox_id -> master PTY fd (same-process fast path)
 _pty_fds: dict[str, int] = {}
 # Maps sandbox_id -> (cols, rows) current PTY size
@@ -305,6 +315,11 @@ async def run_sandbox(
 
         # build bwrap command
         svc_binds, svc_env = _load_services(cwd)
+        if _podman_service_enabled(cwd):
+            containers_conf = Path(tmpdir) / "containers.conf"
+            containers_conf.write_text("[engine]\nremote = true\n")
+            svc_binds.append((str(containers_conf), "/opt/aleash-containers.conf", "ro"))
+            svc_env["CONTAINERS_CONF"] = "/opt/aleash-containers.conf"
         bwrap_argv = build_bwrap_argv(
             profile=profile,
             cwd=cwd,

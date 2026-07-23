@@ -81,6 +81,17 @@ def _resolve_onepassword() -> str | None:
 def _resolve_podman() -> str | None:
     xdg_runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     sock = Path(xdg_runtime) / "podman" / "podman.sock"
+    if not sock.is_socket():
+        try:
+            subprocess.run(
+                ["systemctl", "--user", "start", "podman.socket"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
     if sock.is_socket():
         return str(sock)
     return None

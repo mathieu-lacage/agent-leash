@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.0 - 2026-07-23
+
+### Fixed
+
+- When sandbox starts, start system podman service before forwarding socket if podman is requested by container
+
 ## 0.12.0 - 2026-06-28
 
 ### Fixed
