@@ -90,7 +90,12 @@ def _resolve_podman() -> str | None:
                 stderr=subprocess.DEVNULL,
                 timeout=10,
             )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+            OSError,
+        ):
             pass
     if sock.is_socket():
         return str(sock)

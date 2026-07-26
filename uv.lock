@@ -27,7 +27,6 @@ dev = [
     { name = "pre-commit" },
     { name = "pyright" },
     { name = "pytest" },
-    { name = "websockets" },
 ]
 
 [package.metadata]
@@ -47,7 +46,6 @@ dev = [
     { name = "pre-commit", specifier = ">=4.6.0" },
     { name = "pyright", specifier = ">=1.1.410" },
     { name = "pytest", specifier = ">=8" },
-    { name = "websockets", specifier = ">=13" },
 ]
 
 [[package]]

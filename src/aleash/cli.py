@@ -59,7 +59,11 @@ def main(ctx, profile, browser_master):
     """Sandbox runner for AI coding agents."""
     from . import db as _db
 
-    _db.DB_PATH = Path.cwd() / ".aleash" / "data.db"
+    if db_path_env := os.environ.get("ALEASH_DB_PATH"):
+        _db.DB_PATH = Path(db_path_env)
+    else:
+        _db.DB_PATH = Path.cwd() / ".aleash" / "data.db"
+    _db.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     ctx.ensure_object(dict)
     ctx.obj["profile"] = profile
     ctx.obj["browser_master"] = browser_master
@@ -114,14 +118,15 @@ def _run_agent(
 
     port = _free_port()
     server = _start_server_background(port)
-    click.echo(f"Sandbox UI available on http://localhost:{port}/")
-    import subprocess
+    if not os.environ.get("ALEASH_NO_BROWSER"):
+        import subprocess
 
-    subprocess.Popen(
-        ["xdg-open", f"http://localhost:{port}/"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+        click.echo(f"Sandbox UI available on http://localhost:{port}/")
+        subprocess.Popen(
+            ["xdg-open", f"http://localhost:{port}/"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     try:
         exit_code = asyncio.run(
             run_sandbox(
@@ -171,9 +176,15 @@ def opencode(ctx, extra_args):
     name="run",
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
+@click.option(
+    "--forward-stdin",
+    is_flag=True,
+    default=False,
+    help="Forward host stdin to the sandbox (e.g. for piping data in).",
+)
 @click.argument("cmd", nargs=-1, type=click.UNPROCESSED, required=True)
 @click.pass_context
-def run_cmd(ctx, cmd):
+def run_cmd(ctx, forward_stdin, cmd):
     """Run an arbitrary command in a sandbox."""
     from .profiles import PROFILES
     from .runner import run_sandbox
@@ -185,16 +196,21 @@ def run_cmd(ctx, cmd):
         )
         sys.exit(1)
 
-    port = _free_port()
-    server = _start_server_background(port)
-    click.echo(f"Sandbox UI available on http://localhost:{port}/")
-    import subprocess
+    server_url = os.environ.get("ALEASH_SERVER_URL")
+    server = None
+    if server_url is None:
+        port = _free_port()
+        server = _start_server_background(port)
+        server_url = f"http://localhost:{port}"
+        if not os.environ.get("ALEASH_NO_BROWSER"):
+            import subprocess
 
-    subprocess.Popen(
-        ["xdg-open", f"http://localhost:{port}/"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+            click.echo(f"Sandbox UI available on {server_url}/")
+            subprocess.Popen(
+                ["xdg-open", f"{server_url}/"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
     try:
         exit_code = asyncio.run(
             run_sandbox(
@@ -202,9 +218,11 @@ def run_cmd(ctx, cmd):
                 cwd=os.getcwd(),
                 cmd=list(cmd),
                 browser_master=ctx.obj.get("browser_master", False),
-                server_url=f"http://localhost:{port}",
+                server_url=server_url,
+                forward_stdin=forward_stdin,
             )
         )
     finally:
-        server.should_exit = True
+        if server is not None:
+            server.should_exit = True
     sys.exit(exit_code)

@@ -208,7 +208,10 @@ exec "$@"
 
 
 async def _start_xdg_dbus_proxy(
-    sock_path: str, browser: bool = False, notifications: bool = False, github: bool = False
+    sock_path: str,
+    browser: bool = False,
+    notifications: bool = False,
+    github: bool = False,
 ) -> asyncio.subprocess.Process:
     dbus_addr = os.environ.get("DBUS_SESSION_BUS_ADDRESS", "")
     proxy_args = ["xdg-dbus-proxy", dbus_addr, sock_path, "--filter"]
@@ -289,6 +292,7 @@ async def run_sandbox(
     sandbox_id: str | None = None,
     browser_master: bool = False,
     server_url: str = _DEFAULT_SERVER_URL,
+    forward_stdin: bool = False,
 ) -> int:
     """Run agent in sandbox. Returns exit code."""
     sandbox_id = sandbox_id or str(uuid.uuid4())
@@ -358,7 +362,9 @@ async def run_sandbox(
         if _podman_service_enabled(cwd):
             containers_conf = Path(tmpdir) / "containers.conf"
             containers_conf.write_text("[engine]\nremote = true\n")
-            svc_binds.append((str(containers_conf), "/opt/aleash-containers.conf", "ro"))
+            svc_binds.append(
+                (str(containers_conf), "/opt/aleash-containers.conf", "ro")
+            )
             svc_env["CONTAINERS_CONF"] = "/opt/aleash-containers.conf"
 
         # pipe for bwrap --info-fd so we can learn the child PID and start the gateway
@@ -391,8 +397,13 @@ async def run_sandbox(
         # inject --info-fd and resolv.conf binding before the -- separator
         sep = bwrap_argv.index("--")
         resolv_args = (
-            ["--dir", os.path.dirname(_resolv_real),
-             "--ro-bind-data", str(_r_resolv), _resolv_real]
+            [
+                "--dir",
+                os.path.dirname(_resolv_real),
+                "--ro-bind-data",
+                str(_r_resolv),
+                _resolv_real,
+            ]
             if _resolv_real != "/etc/resolv.conf"
             else ["--ro-bind-data", str(_r_resolv), "/etc/resolv.conf"]
         )
@@ -514,6 +525,10 @@ async def run_sandbox(
             os.close(child_stdin_r)
             child_stdin_r = None
 
+        if not forward_stdin and child_stdin_w is not None:
+            os.close(child_stdin_w)
+            child_stdin_w = None
+
         # read child PID from bwrap's --info-fd, then start TUN gateway
         info_fut: asyncio.Future[bytes] = loop.create_future()
 
@@ -544,13 +559,20 @@ async def run_sandbox(
             gateway_proc = await asyncio.create_subprocess_exec(
                 sys.executable,
                 str(Path(__file__).parent / "_tun_gateway.py"),
-                str(child_pid), sandbox_id, server_url, str(proxy_port),
+                str(child_pid),
+                sandbox_id,
+                server_url,
+                str(proxy_port),
                 stderr=None,  # inherit: lets gateway errors reach the terminal
             )
 
         # stream PTY output; also relay local terminal if stdin is a TTY
         await _stream_pty(
-            master_fd, sandbox_id, loop, interactive=os.isatty(0), server_url=server_url,
+            master_fd,
+            sandbox_id,
+            loop,
+            interactive=os.isatty(0),
+            server_url=server_url,
             pipe_write_fd=child_stdin_w,
         )
 
@@ -658,7 +680,9 @@ async def _stream_pty(
         except termios.error:
             interactive = False  # stdin not a real tty after all
 
-    pipe_stdin = not interactive  # forward piped/redirected stdin to PTY
+    pipe_stdin = (
+        pipe_write_fd is not None
+    )  # forward stdin only when explicitly requested
 
     def _reader():
         has_piped_stdin = pipe_stdin
@@ -690,7 +714,10 @@ async def _stream_pty(
                 try:
                     data = os.read(0, 4096)
                     if data:
-                        os.write(pipe_write_fd if pipe_write_fd is not None else master_fd, data)
+                        os.write(
+                            pipe_write_fd if pipe_write_fd is not None else master_fd,
+                            data,
+                        )
                     else:
                         # stdin exhausted: close pipe write-end (real EOF) or send Ctrl-D to PTY
                         if pipe_write_fd is not None:
@@ -718,7 +745,7 @@ async def _stream_pty(
             data = await read_queue.get()
             if data is None:
                 break
-            if interactive or pipe_stdin:
+            if interactive or not os.isatty(0):
                 os.write(1, data)  # local stdout
             ts = int(time.time() * 1000)
             await dbmod.append_terminal_log(log_db, sandbox_id, ts, data)

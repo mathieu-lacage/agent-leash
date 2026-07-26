@@ -170,7 +170,7 @@ def build_bwrap_argv(
     if _git_entry.is_file():
         _git_text = _git_entry.read_text().strip()
         if _git_text.startswith("gitdir:"):
-            _real_git = (Path(cwd) / _git_text[len("gitdir:"):].strip()).resolve()
+            _real_git = (Path(cwd) / _git_text[len("gitdir:") :].strip()).resolve()
             if _real_git.exists():
                 content.append(("--ro-bind", str(_real_git), str(_real_git)))
 
@@ -219,7 +219,9 @@ def build_bwrap_argv(
     # route appears (pasta takes ~0.5-2s to configure the namespace).
     if netsetup_script:
         args += [
-            "--ro-bind", netsetup_script, "/opt/aleash-netsetup.sh",
+            "--ro-bind",
+            netsetup_script,
+            "/opt/aleash-netsetup.sh",
         ]
         cmd = ["/bin/sh", "/opt/aleash-netsetup.sh", *cmd]
 

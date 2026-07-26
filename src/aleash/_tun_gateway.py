@@ -8,6 +8,7 @@ intercepts all TCP and UDP, and gates each new connection through
 
 Usage: sys.executable _tun_gateway.py <child_pid> <sandbox_id> <server_url> <proxy_port>
 """
+
 import asyncio
 import ctypes
 import fcntl
@@ -23,34 +24,34 @@ import httpx
 # ── constants ──────────────────────────────────────────────────────────────────
 
 CLONE_NEWUSER = 0x10000000
-CLONE_NEWNET  = 0x40000000
-TUNSETIFF     = 0x400454ca
-IFF_TUN       = 0x0001
-IFF_NO_PI     = 0x1000
+CLONE_NEWNET = 0x40000000
+TUNSETIFF = 0x400454CA
+IFF_TUN = 0x0001
+IFF_NO_PI = 0x1000
 
-_PROTO_TCP    = 6
-_PROTO_UDP    = 17
+_PROTO_TCP = 6
+_PROTO_UDP = 17
 
-_HOST_ADDR    = "169.254.0.1"   # host alias inside sandbox (maps to 127.0.0.1)
-_SANDBOX_ADDR = "169.254.0.2"   # sandbox IP on the TUN link
+_HOST_ADDR = "169.254.0.1"  # host alias inside sandbox (maps to 127.0.0.1)
+_SANDBOX_ADDR = "169.254.0.2"  # sandbox IP on the TUN link
 
-_HOST_IP      = socket.inet_aton(_HOST_ADDR)
+_HOST_IP = socket.inet_aton(_HOST_ADDR)
 
 # ── ioctl / netlink constants for interface setup ──────────────────────────────
-SIOCGIFFLAGS   = 0x8913
-SIOCSIFFLAGS   = 0x8914
-SIOCSIFADDR    = 0x8916
-SIOCSIFNETMASK = 0x891c
-NETLINK_ROUTE  = 0
-RTM_NEWROUTE   = 24
-NLM_F_REQUEST  = 0x01
-NLM_F_ACK      = 0x04   # always get a response (error=0 on success)
-NLM_F_CREATE   = 0x400
-RT_TABLE_MAIN  = 254
-RTPROT_STATIC  = 4
+SIOCGIFFLAGS = 0x8913
+SIOCSIFFLAGS = 0x8914
+SIOCSIFADDR = 0x8916
+SIOCSIFNETMASK = 0x891C
+NETLINK_ROUTE = 0
+RTM_NEWROUTE = 24
+NLM_F_REQUEST = 0x01
+NLM_F_ACK = 0x04  # always get a response (error=0 on success)
+NLM_F_CREATE = 0x400
+RT_TABLE_MAIN = 254
+RTPROT_STATIC = 4
 RT_SCOPE_UNIVERSE = 0
-RTN_UNICAST    = 1
-RTA_OIF        = 4
+RTN_UNICAST = 1
+RTA_OIF = 4
 
 TH_FIN = 0x01
 TH_SYN = 0x02
@@ -59,6 +60,7 @@ TH_PSH = 0x08
 TH_ACK = 0x10
 
 # ── DNS helpers ───────────────────────────────────────────────────────────────
+
 
 def _dns_parse_name(msg: bytes, off: int) -> tuple[str, int]:
     labels: list[str] = []
@@ -83,7 +85,7 @@ def _dns_parse_name(msg: bytes, off: int) -> tuple[str, int]:
             break
         else:
             end = off + 1 + b
-            labels.append(msg[off + 1:end].decode(errors="replace"))
+            labels.append(msg[off + 1 : end].decode(errors="replace"))
             off = end
     return ".".join(labels), off
 
@@ -109,7 +111,7 @@ def _dns_extract_a_records(msg: bytes) -> dict[str, str]:
             break
         rtype, _cls, _ttl, rdlen = struct.unpack_from("!HHIH", msg, off)
         off += 10
-        rdata = msg[off:off + rdlen]
+        rdata = msg[off : off + rdlen]
         off += rdlen
         if rtype == 1 and rdlen == 4 and qname:  # A record
             result[socket.inet_ntoa(rdata)] = qname
@@ -117,6 +119,7 @@ def _dns_extract_a_records(msg: bytes) -> dict[str, str]:
 
 
 # ── checksum ───────────────────────────────────────────────────────────────────
+
 
 def _cksum(data: bytes) -> int:
     if len(data) % 2:
@@ -141,41 +144,61 @@ def _udp_cksum(src: bytes, dst: bytes, seg: bytes) -> int:
 
 # ── packet builders ────────────────────────────────────────────────────────────
 
+
 def _mk_ip(src: bytes, dst: bytes, proto: int, payload: bytes) -> bytes:
     total = 20 + len(payload)
     hdr = struct.pack(
         "!BBHHHBBH4s4s",
-        0x45, 0, total,
-        random.randint(0, 0xFFFF), 0,
-        64, proto, 0,
-        src, dst,
+        0x45,
+        0,
+        total,
+        random.randint(0, 0xFFFF),
+        0,
+        64,
+        proto,
+        0,
+        src,
+        dst,
     )
     ck = _cksum(hdr)
     return hdr[:10] + struct.pack("!H", ck) + hdr[12:] + payload
 
 
 def _mk_tcp(
-    src_ip: bytes, dst_ip: bytes,
-    sport: int, dport: int,
-    seq: int, ack: int, flags: int,
+    src_ip: bytes,
+    dst_ip: bytes,
+    sport: int,
+    dport: int,
+    seq: int,
+    ack: int,
+    flags: int,
     win: int = 65535,
     data: bytes = b"",
 ) -> bytes:
-    seg = struct.pack(
-        "!HHIIHHHH",
-        sport, dport,
-        seq & 0xFFFFFFFF, ack & 0xFFFFFFFF,
-        (5 << 12) | (flags & 0xFF),
-        win, 0, 0,
-    ) + data
+    seg = (
+        struct.pack(
+            "!HHIIHHHH",
+            sport,
+            dport,
+            seq & 0xFFFFFFFF,
+            ack & 0xFFFFFFFF,
+            (5 << 12) | (flags & 0xFF),
+            win,
+            0,
+            0,
+        )
+        + data
+    )
     ck = _tcp_cksum(src_ip, dst_ip, seg)
     seg = seg[:16] + struct.pack("!H", ck) + seg[18:]
     return _mk_ip(src_ip, dst_ip, _PROTO_TCP, seg)
 
 
 def _mk_udp(
-    src_ip: bytes, dst_ip: bytes,
-    sport: int, dport: int,
+    src_ip: bytes,
+    dst_ip: bytes,
+    sport: int,
+    dport: int,
     data: bytes,
 ) -> bytes:
     seg = struct.pack("!HHHH", sport, dport, 8 + len(data), 0) + data
@@ -185,6 +208,7 @@ def _mk_udp(
 
 
 # ── packet parsers ─────────────────────────────────────────────────────────────
+
 
 def _parse_ip(data: bytes):
     """Return (version, proto, src, dst, payload) or None on error."""
@@ -224,9 +248,11 @@ def _parse_udp(payload: bytes):
 
 # ── SCM_RIGHTS helpers ─────────────────────────────────────────────────────────
 
+
 def _send_fd(sock: socket.socket, fd: int) -> None:
-    sock.sendmsg([b"\x00"], [(socket.SOL_SOCKET, socket.SCM_RIGHTS,
-                              struct.pack("i", fd))])
+    sock.sendmsg(
+        [b"\x00"], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, struct.pack("i", fd))]
+    )
 
 
 def _recv_fd(sock: socket.socket) -> int:
@@ -237,6 +263,7 @@ def _recv_fd(sock: socket.socket) -> int:
 
 
 # ── interface configuration (no subprocess — capabilities don't survive exec) ──
+
 
 def _configure_iface(ifname: str, addr: str, prefix: int) -> None:
     """Set IP address/netmask, bring interface up, add default route."""
@@ -263,15 +290,27 @@ def _configure_iface(ifname: str, addr: str, prefix: int) -> None:
 
     # Add default route: RTM_NEWROUTE via NETLINK_ROUTE
     ifindex = socket.if_nametoindex(ifname)
-    rtmsg = struct.pack("<BBBBBBBBI",
-        socket.AF_INET, 0, 0, 0,       # family, dst_len, src_len, tos
-        RT_TABLE_MAIN, RTPROT_STATIC,
-        RT_SCOPE_UNIVERSE, RTN_UNICAST, 0,
+    rtmsg = struct.pack(
+        "<BBBBBBBBI",
+        socket.AF_INET,
+        0,
+        0,
+        0,  # family, dst_len, src_len, tos
+        RT_TABLE_MAIN,
+        RTPROT_STATIC,
+        RT_SCOPE_UNIVERSE,
+        RTN_UNICAST,
+        0,
     )
     rta = struct.pack("<HHI", 8, RTA_OIF, ifindex)
     payload = rtmsg + rta
-    nlhdr = struct.pack("<IHHII",
-        16 + len(payload), RTM_NEWROUTE, NLM_F_REQUEST | NLM_F_CREATE | NLM_F_ACK, 1, 0,
+    nlhdr = struct.pack(
+        "<IHHII",
+        16 + len(payload),
+        RTM_NEWROUTE,
+        NLM_F_REQUEST | NLM_F_CREATE | NLM_F_ACK,
+        1,
+        0,
     )
     nl = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, NETLINK_ROUTE)
     try:
@@ -289,6 +328,7 @@ def _configure_iface(ifname: str, addr: str, prefix: int) -> None:
 
 
 # ── TUN setup (runs in a fork to avoid affecting the main process's namespaces) ─
+
 
 def _setns(libc, path: str, flag: int) -> None:
     fd = os.open(path, os.O_RDONLY)
@@ -310,11 +350,12 @@ def _setup_tun(child_pid: int) -> int:
             libc = ctypes.CDLL("libc.so.6", use_errno=True)
             # Enter child user namespace first (grants ns_capable on the net ns)
             _setns(libc, f"/proc/{child_pid}/ns/user", CLONE_NEWUSER)
-            _setns(libc, f"/proc/{child_pid}/ns/net",  CLONE_NEWNET)
+            _setns(libc, f"/proc/{child_pid}/ns/net", CLONE_NEWNET)
 
             tfd = os.open("/dev/net/tun", os.O_RDWR)
-            fcntl.ioctl(tfd, TUNSETIFF,
-                        struct.pack("16sH14x", b"aleash0", IFF_TUN | IFF_NO_PI))
+            fcntl.ioctl(
+                tfd, TUNSETIFF, struct.pack("16sH14x", b"aleash0", IFF_TUN | IFF_NO_PI)
+            )
 
             _configure_iface("aleash0", _SANDBOX_ADDR, 30)
 
@@ -333,19 +374,29 @@ def _setup_tun(child_pid: int) -> int:
 
 # ── per-connection TCP state ───────────────────────────────────────────────────
 
+
 class TcpConn:
     __slots__ = (
-        "key", "gw",
-        "client_isn", "server_isn",
-        "client_next", "server_next",
-        "host_reader", "host_writer",
-        "state", "_relay",
+        "key",
+        "gw",
+        "client_isn",
+        "server_isn",
+        "client_next",
+        "server_next",
+        "host_reader",
+        "host_writer",
+        "state",
+        "_relay",
     )
 
     def __init__(
-        self, key: tuple, gw: "TunGateway",
-        client_isn: int, server_isn: int,
-        hr: asyncio.StreamReader, hw: asyncio.StreamWriter,
+        self,
+        key: tuple,
+        gw: "TunGateway",
+        client_isn: int,
+        server_isn: int,
+        hr: asyncio.StreamReader,
+        hw: asyncio.StreamWriter,
     ) -> None:
         self.key = key
         self.gw = gw
@@ -367,9 +418,16 @@ class TcpConn:
                 data = await self.host_reader.read(32768)
                 if not data:
                     break
-                pkt = _mk_tcp(dst_ip, src_ip, dport, sport,
-                               self.server_next, self.client_next,
-                               TH_ACK | TH_PSH, data=data)
+                pkt = _mk_tcp(
+                    dst_ip,
+                    src_ip,
+                    dport,
+                    sport,
+                    self.server_next,
+                    self.client_next,
+                    TH_ACK | TH_PSH,
+                    data=data,
+                )
                 self.server_next = (self.server_next + len(data)) & 0xFFFFFFFF
                 self.gw._inject(pkt)
         except Exception:
@@ -377,9 +435,15 @@ class TcpConn:
         finally:
             if self.state != "CLOSED":
                 self.state = "CLOSED"
-                pkt = _mk_tcp(dst_ip, src_ip, dport, sport,
-                               self.server_next, self.client_next,
-                               TH_FIN | TH_ACK)
+                pkt = _mk_tcp(
+                    dst_ip,
+                    src_ip,
+                    dport,
+                    sport,
+                    self.server_next,
+                    self.client_next,
+                    TH_FIN | TH_ACK,
+                )
                 self.server_next = (self.server_next + 1) & 0xFFFFFFFF
                 self.gw._inject(pkt)
             self.gw._tcp.pop(self.key, None)
@@ -391,8 +455,9 @@ class TcpConn:
             self.client_next = (self.client_next + len(tcp_payload)) & 0xFFFFFFFF
             # ACK the received data
             src_ip, sport, dst_ip, dport = self.key
-            ack_pkt = _mk_tcp(dst_ip, src_ip, dport, sport,
-                               self.server_next, self.client_next, TH_ACK)
+            ack_pkt = _mk_tcp(
+                dst_ip, src_ip, dport, sport, self.server_next, self.client_next, TH_ACK
+            )
             self.gw._inject(ack_pkt)
 
         if flags & TH_FIN:
@@ -402,8 +467,9 @@ class TcpConn:
             except Exception:
                 pass
             src_ip, sport, dst_ip, dport = self.key
-            pkt = _mk_tcp(dst_ip, src_ip, dport, sport,
-                           self.server_next, self.client_next, TH_ACK)
+            pkt = _mk_tcp(
+                dst_ip, src_ip, dport, sport, self.server_next, self.client_next, TH_ACK
+            )
             self.gw._inject(pkt)
 
         if flags & TH_RST:
@@ -425,6 +491,7 @@ class TcpConn:
 
 
 # ── gateway ────────────────────────────────────────────────────────────────────
+
 
 class TunGateway:
     def __init__(
@@ -464,8 +531,10 @@ class TunGateway:
             async with httpx.AsyncClient(timeout=70.0) as c:
                 r = await c.post(
                     f"{self._server_url}/api/proxy/request-approval",
-                    json={"sandbox_id": self._sandbox_id,
-                          "domain": f"{display}:{port}"},
+                    json={
+                        "sandbox_id": self._sandbox_id,
+                        "domain": f"{display}:{port}",
+                    },
                 )
             return r.json().get("action") == "allow"
         except Exception:
@@ -507,15 +576,22 @@ class TunGateway:
             if key in self._tcp:
                 # SYN retransmit after established — resend SYN-ACK
                 conn = self._tcp[key]
-                pkt = _mk_tcp(dst_ip, src_ip, dport, sport,
-                               conn.server_isn, conn.client_isn + 1,
-                               TH_SYN | TH_ACK)
+                pkt = _mk_tcp(
+                    dst_ip,
+                    src_ip,
+                    dport,
+                    sport,
+                    conn.server_isn,
+                    conn.client_isn + 1,
+                    TH_SYN | TH_ACK,
+                )
                 self._inject(pkt)
                 return
             # Block direct HTTP/HTTPS — must use mitmproxy (via env var proxy)
             if dport in (80, 443):
-                self._inject(_mk_tcp(dst_ip, src_ip, dport, sport,
-                                     0, seq + 1, TH_RST | TH_ACK))
+                self._inject(
+                    _mk_tcp(dst_ip, src_ip, dport, sport, 0, seq + 1, TH_RST | TH_ACK)
+                )
                 return
             self._pending.add(key)
             asyncio.ensure_future(self._connect(key, seq))
@@ -525,8 +601,7 @@ class TunGateway:
         conn = self._tcp.get(key)
         if conn is None:
             if not (flags & TH_RST):
-                self._inject(_mk_tcp(dst_ip, src_ip, dport, sport,
-                                     ack, 0, TH_RST))
+                self._inject(_mk_tcp(dst_ip, src_ip, dport, sport, ack, 0, TH_RST))
             return
         conn.on_data(flags, tcp_payload)
 
@@ -542,26 +617,48 @@ class TunGateway:
                 allowed = await self._gate(real_ip, dport)
 
             if not allowed:
-                self._inject(_mk_tcp(dst_ip, src_ip, dport, sport,
-                                     0, (client_isn + 1) & 0xFFFFFFFF,
-                                     TH_RST | TH_ACK))
+                self._inject(
+                    _mk_tcp(
+                        dst_ip,
+                        src_ip,
+                        dport,
+                        sport,
+                        0,
+                        (client_isn + 1) & 0xFFFFFFFF,
+                        TH_RST | TH_ACK,
+                    )
+                )
                 return
 
             hr, hw = await asyncio.open_connection(real_ip, dport)
             server_isn = random.randint(0, 0xFFFFFFFF)
 
             # Send SYN-ACK
-            pkt = _mk_tcp(dst_ip, src_ip, dport, sport,
-                           server_isn, (client_isn + 1) & 0xFFFFFFFF,
-                           TH_SYN | TH_ACK)
+            pkt = _mk_tcp(
+                dst_ip,
+                src_ip,
+                dport,
+                sport,
+                server_isn,
+                (client_isn + 1) & 0xFFFFFFFF,
+                TH_SYN | TH_ACK,
+            )
             self._inject(pkt)
 
             conn = TcpConn(key, self, client_isn, server_isn, hr, hw)
             self._tcp[key] = conn
         except Exception:
-            self._inject(_mk_tcp(dst_ip, src_ip, dport, sport,
-                                 0, (client_isn + 1) & 0xFFFFFFFF,
-                                 TH_RST | TH_ACK))
+            self._inject(
+                _mk_tcp(
+                    dst_ip,
+                    src_ip,
+                    dport,
+                    sport,
+                    0,
+                    (client_isn + 1) & 0xFFFFFFFF,
+                    TH_RST | TH_ACK,
+                )
+            )
         finally:
             self._pending.discard(key)
 
@@ -611,9 +708,7 @@ class TunGateway:
             sock.setblocking(False)
             await loop.sock_connect(sock, (real_ip, dport))
             await loop.sock_sendall(sock, udp_payload)
-            reply = await asyncio.wait_for(
-                loop.sock_recv(sock, 65535), timeout=30.0
-            )
+            reply = await asyncio.wait_for(loop.sock_recv(sock, 65535), timeout=30.0)
             sock.close()
         except Exception:
             return
@@ -626,6 +721,7 @@ class TunGateway:
 
 
 # ── host DNS detection ─────────────────────────────────────────────────────────
+
 
 def _detect_host_dns() -> str:
     """Read the host's real DNS server before any namespace setup."""
@@ -657,17 +753,20 @@ def _detect_host_dns() -> str:
 
 # ── entry point ────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     if len(sys.argv) < 5:
-        print("usage: _tun_gateway.py <child_pid> <sandbox_id> <server_url> <proxy_port>",
-              file=sys.stderr)
+        print(
+            "usage: _tun_gateway.py <child_pid> <sandbox_id> <server_url> <proxy_port>",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    child_pid   = int(sys.argv[1])
-    sandbox_id  = sys.argv[2]
-    server_url  = sys.argv[3]
-    proxy_port  = int(sys.argv[4])   # mitmproxy port (currently unused in gateway logic)
-    host_dns    = _detect_host_dns()
+    child_pid = int(sys.argv[1])
+    sandbox_id = sys.argv[2]
+    server_url = sys.argv[3]
+    proxy_port = int(sys.argv[4])  # mitmproxy port (currently unused in gateway logic)
+    host_dns = _detect_host_dns()
 
     tun_fd = _setup_tun(child_pid)
     gw = TunGateway(tun_fd, sandbox_id, server_url, proxy_port, host_dns)

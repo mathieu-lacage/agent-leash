@@ -38,7 +38,7 @@ class DomainGatekeeper:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=70.0) as client:
+            async with httpx.AsyncClient(timeout=70.0, trust_env=False) as client:
                 r = await client.post(
                     f"{self.server_url}/api/proxy/request-approval",
                     json={"sandbox_id": self.sandbox_id, "domain": domain},

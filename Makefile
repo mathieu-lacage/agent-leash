@@ -1,4 +1,4 @@
-.PHONY: all sync frontend
+.PHONY: all sync frontend test
 
 all: sync check
 
@@ -7,6 +7,11 @@ check:
 
 sync:
 	uv sync
+
+# Dev server: serves UI on :5173 with hot-reload, proxies /api and /ws to the
+# mleash daemon on :7612. Run `uv run mleash start --foreground` first.
+test:
+	uv run pytest tests/ -v
 
 # Dev server: serves UI on :5173 with hot-reload, proxies /api and /ws to the
 # mleash daemon on :7612. Run `uv run mleash start --foreground` first.
