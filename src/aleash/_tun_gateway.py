@@ -58,6 +58,64 @@ TH_RST = 0x04
 TH_PSH = 0x08
 TH_ACK = 0x10
 
+# ── DNS helpers ───────────────────────────────────────────────────────────────
+
+def _dns_parse_name(msg: bytes, off: int) -> tuple[str, int]:
+    labels: list[str] = []
+    visited: set[int] = set()
+    while True:
+        if off >= len(msg):
+            break
+        b = msg[off]
+        if b == 0:
+            off += 1
+            break
+        if (b & 0xC0) == 0xC0:
+            if off + 1 >= len(msg):
+                break
+            ptr = ((b & 0x3F) << 8) | msg[off + 1]
+            off += 2
+            if ptr not in visited:
+                visited.add(ptr)
+                name, _ = _dns_parse_name(msg, ptr)
+                if name:
+                    labels.append(name)
+            break
+        else:
+            end = off + 1 + b
+            labels.append(msg[off + 1:end].decode(errors="replace"))
+            off = end
+    return ".".join(labels), off
+
+
+def _dns_extract_a_records(msg: bytes) -> dict[str, str]:
+    """Parse a DNS reply; return {ipv4_str: qname} for every A-record answer."""
+    if len(msg) < 12:
+        return {}
+    qdcount, ancount = struct.unpack_from("!HH", msg, 4)
+    off = 12
+    qname = ""
+    for _ in range(qdcount):
+        name, off = _dns_parse_name(msg, off)
+        if not qname:
+            qname = name.rstrip(".")
+        off += 4  # QTYPE + QCLASS
+    result: dict[str, str] = {}
+    for _ in range(ancount):
+        if off >= len(msg):
+            break
+        _, off = _dns_parse_name(msg, off)
+        if off + 10 > len(msg):
+            break
+        rtype, _cls, _ttl, rdlen = struct.unpack_from("!HHIH", msg, off)
+        off += 10
+        rdata = msg[off:off + rdlen]
+        off += rdlen
+        if rtype == 1 and rdlen == 4 and qname:  # A record
+            result[socket.inet_ntoa(rdata)] = qname
+    return result
+
+
 # ── checksum ───────────────────────────────────────────────────────────────────
 
 def _cksum(data: bytes) -> int:
@@ -384,6 +442,7 @@ class TunGateway:
         self._host_dns = host_dns
         self._tcp: dict[tuple, TcpConn] = {}
         self._pending: set[tuple] = set()
+        self._dns_cache: dict[str, str] = {}
 
     def _inject(self, pkt: bytes) -> None:
         try:
@@ -392,12 +451,21 @@ class TunGateway:
             pass
 
     async def _gate(self, host: str, port: int) -> bool:
+        display = self._dns_cache.get(host)
+        if display is None:
+            try:
+                loop = asyncio.get_running_loop()
+                display = await loop.run_in_executor(
+                    None, lambda: socket.gethostbyaddr(host)[0]
+                )
+            except Exception:
+                display = host
         try:
             async with httpx.AsyncClient(timeout=70.0) as c:
                 r = await c.post(
                     f"{self._server_url}/api/proxy/request-approval",
                     json={"sandbox_id": self._sandbox_id,
-                          "domain": f"{host}:{port}"},
+                          "domain": f"{display}:{port}"},
                 )
             return r.json().get("action") == "allow"
         except Exception:
@@ -516,6 +584,7 @@ class TunGateway:
                     loop.sock_recv(sock, 65535), timeout=10.0
                 )
                 sock.close()
+                self._dns_cache.update(_dns_extract_a_records(reply))
             except Exception:
                 return
             self._inject(_mk_udp(dst_ip, src_ip, dport, sport, reply))
