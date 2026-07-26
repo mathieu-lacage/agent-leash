@@ -188,6 +188,7 @@ def _mitmdump_bin() -> str:
 def _write_netsetup(tmp_dir: str) -> str:
     script = """\
 #!/bin/sh
+ip link set lo up 2>/dev/null || true
 # Wait for the TUN gateway to bring up the default route (up to 10s).
 i=0
 while [ "$i" -lt 50 ]; do
