@@ -47,6 +47,12 @@ exclude = ["hatch_build.py", "frontend/", ".venv/"]
 
 [dependency-groups]
 dev = [
+    "cram>=0.7",
     "pre-commit>=4.6.0",
     "pyright>=1.1.410",
+    "pytest>=8",
+    "websockets>=13",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
