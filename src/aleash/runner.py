@@ -337,6 +337,7 @@ async def run_sandbox(
     loop = asyncio.get_event_loop()
     pty_input_server = None
     master_fd = None
+    child_stdin_r = child_stdin_w = None
 
     try:
         if xdg_proxy_sock is not None:
@@ -400,6 +401,13 @@ async def run_sandbox(
         # open PTY
         master_fd, slave_fd = pty.openpty()
         _pty_fds[sandbox_id] = master_fd
+
+        # When host stdin is piped (not a TTY), use a real pipe as child stdin
+        # so the child sees isatty(0)==False.  PTY slave is still used for
+        # stdout/stderr so terminal output is captured normally.
+        if not os.isatty(0):
+            child_stdin_r, child_stdin_w = os.pipe()
+            os.set_inheritable(child_stdin_r, True)
 
         # Unix socket so the server process can forward browser keyboard input
         MLEASH_DIR.mkdir(parents=True, exist_ok=True)
@@ -483,16 +491,16 @@ async def run_sandbox(
 
             loop.add_signal_handler(signal.SIGWINCH, _on_sigwinch)
 
+        _stdin_is_pipe = child_stdin_r is not None
+
         def _child_setup() -> None:
-            # New session so the child becomes session leader, then claim the
-            # slave PTY as the controlling terminal. fd 0 is already the slave
-            # PTY at this point (dup2 has run, preexec_fn runs after).
             os.setsid()
-            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+            if not _stdin_is_pipe:
+                fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
         proc = await asyncio.create_subprocess_exec(
             *bwrap_argv,
-            stdin=slave_fd,
+            stdin=child_stdin_r if child_stdin_r is not None else slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,
             close_fds=True,
@@ -502,6 +510,9 @@ async def run_sandbox(
         os.close(slave_fd)
         os.close(info_w)
         os.close(_r_resolv)
+        if child_stdin_r is not None:
+            os.close(child_stdin_r)
+            child_stdin_r = None
 
         # read child PID from bwrap's --info-fd, then start TUN gateway
         info_fut: asyncio.Future[bytes] = loop.create_future()
@@ -539,7 +550,8 @@ async def run_sandbox(
 
         # stream PTY output; also relay local terminal if stdin is a TTY
         await _stream_pty(
-            master_fd, sandbox_id, loop, interactive=os.isatty(0), server_url=server_url
+            master_fd, sandbox_id, loop, interactive=os.isatty(0), server_url=server_url,
+            pipe_write_fd=child_stdin_w,
         )
 
         exit_code = await proc.wait()
@@ -548,6 +560,13 @@ async def run_sandbox(
         _pty_fds.pop(sandbox_id, None)
         _pty_sizes.pop(sandbox_id, None)
         _sandbox_browser_master.pop(sandbox_id, None)
+        for _fd in (child_stdin_r, child_stdin_w):
+            if _fd is not None:
+                try:
+                    os.close(_fd)
+                except OSError:
+                    pass
+        child_stdin_r = child_stdin_w = None
         try:
             loop.remove_signal_handler(signal.SIGWINCH)
         except Exception:
@@ -621,6 +640,7 @@ async def _stream_pty(
     loop: asyncio.AbstractEventLoop,
     interactive: bool = False,
     server_url: str = _DEFAULT_SERVER_URL,
+    pipe_write_fd: int | None = None,
 ) -> None:
     """
     Read PTY output → DB + WebSocket (+ local stdout when interactive).
@@ -670,10 +690,16 @@ async def _stream_pty(
                 try:
                     data = os.read(0, 4096)
                     if data:
-                        os.write(master_fd, data)
+                        os.write(pipe_write_fd if pipe_write_fd is not None else master_fd, data)
                     else:
-                        # stdin exhausted: signal EOF to PTY child
-                        os.write(master_fd, b"\x04")
+                        # stdin exhausted: close pipe write-end (real EOF) or send Ctrl-D to PTY
+                        if pipe_write_fd is not None:
+                            try:
+                                os.close(pipe_write_fd)
+                            except OSError:
+                                pass
+                        else:
+                            os.write(master_fd, b"\x04")
                         has_piped_stdin = False
                         watch = [master_fd]
                 except OSError:
