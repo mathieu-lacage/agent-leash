@@ -5,6 +5,8 @@
 ### Fixed
 
 - When sandbox starts, start system podman service before forwarding socket if podman is requested by container
+- Filter and request approval for all outbound network traffic (TCP, UDP), not only outbound HTTP/HTTPS requests via the proxy
+- Gate access to github keyring behind a "github" service, optionally enabled.
 
 ## 0.12.0 - 2026-06-28
 
