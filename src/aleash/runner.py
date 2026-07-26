@@ -97,6 +97,16 @@ def _podman_service_enabled(cwd: str) -> bool:
     return config.get("podman", {}).get("enabled", SERVICES["podman"].default_enabled)
 
 
+def _github_service_enabled(cwd: str) -> bool:
+    p = Path(cwd) / ".aleash-services.json"
+    try:
+        data = json.loads(p.read_text())
+        config = data.get("services", {})
+    except (OSError, json.JSONDecodeError):
+        return False
+    return config.get("github", {}).get("enabled", SERVICES["github"].default_enabled)
+
+
 # Maps sandbox_id -> master PTY fd (same-process fast path)
 _pty_fds: dict[str, int] = {}
 # Maps sandbox_id -> (cols, rows) current PTY size
@@ -198,7 +208,7 @@ exec "$@"
 
 
 async def _start_xdg_dbus_proxy(
-    sock_path: str, browser: bool = False, notifications: bool = False
+    sock_path: str, browser: bool = False, notifications: bool = False, github: bool = False
 ) -> asyncio.subprocess.Process:
     dbus_addr = os.environ.get("DBUS_SESSION_BUS_ADDRESS", "")
     proxy_args = ["xdg-dbus-proxy", dbus_addr, sock_path, "--filter"]
@@ -209,6 +219,8 @@ async def _start_xdg_dbus_proxy(
             "--talk=org.freedesktop.portal.Desktop",
             "--call=org.freedesktop.portal.Desktop.OpenURI=*",
         ]
+    if github:
+        proxy_args += ["--talk=org.freedesktop.secrets"]
     proc = await asyncio.create_subprocess_exec(
         *proxy_args,
         stdout=asyncio.subprocess.DEVNULL,
@@ -290,9 +302,10 @@ async def run_sandbox(
     tmpdir = tempfile.mkdtemp(prefix="aleash-")
     browser_enabled = _browser_service_enabled(cwd)
     notifications_enabled = _notifications_service_enabled(cwd)
+    github_enabled = _github_service_enabled(cwd)
     xdg_proxy_sock = (
         str(Path(tmpdir) / "xdg-proxy.sock")
-        if (browser_enabled or notifications_enabled)
+        if (browser_enabled or notifications_enabled or github_enabled)
         else None
     )
     fake_flatpak = write_fake_flatpak_info(tmpdir)
@@ -331,6 +344,7 @@ async def run_sandbox(
                 xdg_proxy_sock,
                 browser=browser_enabled,
                 notifications=notifications_enabled,
+                github=github_enabled,
             )
 
         # start mitmproxy

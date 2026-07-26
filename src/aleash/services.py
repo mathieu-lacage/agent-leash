@@ -97,6 +97,13 @@ def _resolve_podman() -> str | None:
     return None
 
 
+def _resolve_github() -> str | None:
+    gh_config = Path.home() / ".config" / "gh"
+    if (gh_config / "hosts.yml").is_file():
+        return str(gh_config)
+    return None
+
+
 def _resolve_browser() -> str | None:
     return shutil.which("xdg-dbus-proxy")
 
@@ -136,6 +143,13 @@ SERVICES: dict[str, ServiceDef] = {
         description="Forward Podman daemon socket for container operations",
         _resolve_fn=_resolve_podman,
         _bwrap_fn=lambda s: ([(s, s, "rw")], {"CONTAINER_HOST": f"unix://{s}"}),
+    ),
+    "github": ServiceDef(
+        id="github",
+        label="GitHub CLI",
+        description="Mount host ~/.config/gh and grant keyring access so gh commands use host credentials",
+        _resolve_fn=_resolve_github,
+        _bwrap_fn=lambda path: ([(path, path, "ro")], {}),
     ),
     "browser": ServiceDef(
         id="browser",
