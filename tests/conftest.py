@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from typing import Union
 
 import pytest
+from _pytest._code.code import TerminalRepr
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -31,6 +33,7 @@ class CramFile(pytest.File):
 
 class CramItem(pytest.Item):
     def runtest(self) -> None:
+        assert self.parent is not None
         result = subprocess.run(
             [sys.executable, "-m", "cram", "--preserve-env", str(self.parent.path)],
             capture_output=True,
@@ -39,12 +42,13 @@ class CramItem(pytest.Item):
         if result.returncode != 0:
             raise CramFailure(result.stdout)
 
-    def repr_failure(self, excinfo) -> str:
+    def repr_failure(self, excinfo, style=None) -> Union[str, TerminalRepr]:
         if isinstance(excinfo.value, CramFailure):
             return str(excinfo.value)
-        return super().repr_failure(excinfo)
+        return super().repr_failure(excinfo, style=style)
 
     def reportinfo(self):
+        assert self.parent is not None
         return self.parent.path, None, f"cram: {self.parent.path.name}"
 
 

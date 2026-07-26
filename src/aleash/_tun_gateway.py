@@ -256,10 +256,10 @@ def _send_fd(sock: socket.socket, fd: int) -> None:
 
 
 def _recv_fd(sock: socket.socket) -> int:
-    _, anc, _, _ = sock.recvmsg(1, socket.CMSG_LEN(struct.calcsize("i")))
-    if not anc:
+    _, ancdata, _, _ = sock.recvmsg(1, socket.CMSG_LEN(struct.calcsize("i")))
+    if not ancdata:
         raise RuntimeError("TUN setup fork exited without sending fd")
-    return struct.unpack("i", anc[0][2])[0]
+    return struct.unpack("i", ancdata[0][2])[0]
 
 
 # ── interface configuration (no subprocess — capabilities don't survive exec) ──
