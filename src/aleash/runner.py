@@ -638,8 +638,11 @@ async def _stream_pty(
         except termios.error:
             interactive = False  # stdin not a real tty after all
 
+    pipe_stdin = not interactive  # forward piped/redirected stdin to PTY
+
     def _reader():
-        watch = [master_fd, 0] if interactive else [master_fd]
+        has_piped_stdin = pipe_stdin
+        watch = [master_fd, 0] if (interactive or has_piped_stdin) else [master_fd]
         while True:
             try:
                 r, _, _ = select.select(watch, [], [], 0.05)
@@ -663,6 +666,20 @@ async def _stream_pty(
                 except OSError:
                     pass
 
+            if has_piped_stdin and 0 in r:
+                try:
+                    data = os.read(0, 4096)
+                    if data:
+                        os.write(master_fd, data)
+                    else:
+                        # stdin exhausted: signal EOF to PTY child
+                        os.write(master_fd, b"\x04")
+                        has_piped_stdin = False
+                        watch = [master_fd]
+                except OSError:
+                    has_piped_stdin = False
+                    watch = [master_fd]
+
         loop.call_soon_threadsafe(read_queue.put_nowait, None)
 
     t = threading.Thread(target=_reader, daemon=True)
@@ -675,7 +692,7 @@ async def _stream_pty(
             data = await read_queue.get()
             if data is None:
                 break
-            if interactive:
+            if interactive or pipe_stdin:
                 os.write(1, data)  # local stdout
             ts = int(time.time() * 1000)
             await dbmod.append_terminal_log(log_db, sandbox_id, ts, data)
