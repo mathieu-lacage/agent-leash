@@ -27,7 +27,7 @@ import tty
 import uuid
 from pathlib import Path
 
-from .bwrap import build_bwrap_argv, write_fake_flatpak_info
+from .bwrap import build_bwrap_argv, write_fake_flatpak_info, _HOST_ADDR
 from .profiles import Profile
 from .services import SERVICES
 from . import db as dbmod
@@ -175,6 +175,28 @@ def _mitmdump_bin() -> str:
     raise FileNotFoundError("mitmdump not found; ensure mitmproxy is installed")
 
 
+def _write_netsetup(tmp_dir: str) -> str:
+    script = """\
+#!/bin/sh
+# Wait for the TUN gateway to bring up the default route (up to 10s).
+i=0
+while [ "$i" -lt 50 ]; do
+    ip route show default 2>/dev/null | grep -q . && break || true
+    sleep 0.2
+    i=$((i+1))
+done
+ip route show default 2>/dev/null | grep -q . || {
+    echo "aleash: network not ready after 10s (gateway failed?)" >&2
+    exit 1
+}
+exec "$@"
+"""
+    p = Path(tmp_dir) / "aleash-netsetup.sh"
+    p.write_text(script)
+    p.chmod(0o755)
+    return str(p)
+
+
 async def _start_xdg_dbus_proxy(
     sock_path: str, browser: bool = False, notifications: bool = False
 ) -> asyncio.subprocess.Process:
@@ -293,8 +315,11 @@ async def run_sandbox(
     proxy_port = _free_port()
     ca_cert = await _ensure_mitmproxy_ca()
 
+    netsetup_script = _write_netsetup(tmpdir)
+
     xdg_proc = None
     mitm_proc = None
+    gateway_proc = None
     exit_code = 1
     loop = asyncio.get_event_loop()
     pty_input_server = None
@@ -320,6 +345,10 @@ async def run_sandbox(
             containers_conf.write_text("[engine]\nremote = true\n")
             svc_binds.append((str(containers_conf), "/opt/aleash-containers.conf", "ro"))
             svc_env["CONTAINERS_CONF"] = "/opt/aleash-containers.conf"
+
+        # pipe for bwrap --info-fd so we can learn the child PID and start the gateway
+        info_r, info_w = os.pipe()
+
         bwrap_argv = build_bwrap_argv(
             profile=profile,
             cwd=cwd,
@@ -331,7 +360,28 @@ async def run_sandbox(
             user_binds=_load_user_binds(cwd),
             service_binds=svc_binds,
             service_env=svc_env,
+            netsetup_script=netsetup_script,
         )
+
+        # Override /etc/resolv.conf to point at the TUN gateway's DNS forwarder.
+        # --ro-bind-data creates a new file from a pipe FD, which handles the
+        # Fedora case where /etc/resolv.conf is a symlink whose target
+        # (/run/systemd/resolve/stub-resolv.conf) doesn't exist in the
+        # unshared namespace.  --dir ensures the parent directory exists first.
+        _resolv_real = os.path.realpath("/etc/resolv.conf")
+        _r_resolv, _w_resolv = os.pipe()
+        os.write(_w_resolv, f"nameserver {_HOST_ADDR}\n".encode())
+        os.close(_w_resolv)
+
+        # inject --info-fd and resolv.conf binding before the -- separator
+        sep = bwrap_argv.index("--")
+        resolv_args = (
+            ["--dir", os.path.dirname(_resolv_real),
+             "--ro-bind-data", str(_r_resolv), _resolv_real]
+            if _resolv_real != "/etc/resolv.conf"
+            else ["--ro-bind-data", str(_r_resolv), "/etc/resolv.conf"]
+        )
+        bwrap_argv[sep:sep] = ["--info-fd", str(info_w)] + resolv_args
 
         # open PTY
         master_fd, slave_fd = pty.openpty()
@@ -432,9 +482,46 @@ async def run_sandbox(
             stdout=slave_fd,
             stderr=slave_fd,
             close_fds=True,
+            pass_fds=(info_w, _r_resolv),
             preexec_fn=_child_setup,
         )
         os.close(slave_fd)
+        os.close(info_w)
+        os.close(_r_resolv)
+
+        # read child PID from bwrap's --info-fd, then start TUN gateway
+        info_fut: asyncio.Future[bytes] = loop.create_future()
+
+        def _on_info_readable() -> None:
+            try:
+                data = os.read(info_r, 4096)
+                if not info_fut.done():
+                    info_fut.set_result(data)
+            except OSError as exc:
+                if not info_fut.done():
+                    info_fut.set_exception(exc)
+            finally:
+                loop.remove_reader(info_r)
+
+        loop.add_reader(info_r, _on_info_readable)
+        try:
+            info_bytes = await asyncio.wait_for(info_fut, timeout=10.0)
+            child_pid = json.loads(info_bytes)["child-pid"]
+        except Exception:
+            child_pid = None
+        finally:
+            try:
+                os.close(info_r)
+            except OSError:
+                pass
+
+        if child_pid:
+            gateway_proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                str(Path(__file__).parent / "_tun_gateway.py"),
+                str(child_pid), sandbox_id, server_url, str(proxy_port),
+                stderr=None,  # inherit: lets gateway errors reach the terminal
+            )
 
         # stream PTY output; also relay local terminal if stdin is a TTY
         await _stream_pty(
@@ -464,7 +551,7 @@ async def run_sandbox(
                 os.close(master_fd)
             except OSError:
                 pass
-        for _p in (mitm_proc, xdg_proc):
+        for _p in (gateway_proc, mitm_proc, xdg_proc):
             if _p and _p.returncode is None:
                 try:
                     _p.kill()

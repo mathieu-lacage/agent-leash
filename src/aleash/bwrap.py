@@ -48,6 +48,9 @@ def _uid() -> str:
     return str(os.getuid())
 
 
+_HOST_ADDR = "169.254.0.1"  # TUN gateway host alias (maps to 127.0.0.1 on host)
+
+
 def build_bwrap_argv(
     profile: Profile,
     cwd: str,
@@ -59,17 +62,18 @@ def build_bwrap_argv(
     user_binds: list[tuple[str, str, str]] | None = None,
     service_binds: list[tuple[str, str, str]] | None = None,
     service_env: dict[str, str] | None = None,
+    netsetup_script: str = "",
 ) -> list[str]:
     uid = _uid()
     ca_dest = "/tmp/aleash-ca.pem"
-    proxy_url = f"http://127.0.0.1:{proxy_port}"
+    proxy_url = f"http://{_HOST_ADDR}:{proxy_port}"
 
     args = [
         "bwrap",
         "--unshare-pid",
         "--unshare-uts",
         "--unshare-ipc",
-        "--share-net",
+        "--unshare-net",
         "--die-with-parent",
         "--dev-bind",
         "/dev",
@@ -199,9 +203,20 @@ def build_bwrap_argv(
     for k, v in (service_env or {}).items():
         args += ["--setenv", k, v]
 
+    # Save the real agent binary before potentially wrapping cmd below.
+    original_binary = cmd[0]
+
+    # Pasta network wait: wrap cmd in a small script that blocks until the default
+    # route appears (pasta takes ~0.5-2s to configure the namespace).
+    if netsetup_script:
+        args += [
+            "--ro-bind", netsetup_script, "/opt/aleash-netsetup.sh",
+        ]
+        cmd = ["/bin/sh", "/opt/aleash-netsetup.sh", *cmd]
+
     # auto-bind the command binary if it lives outside already-mounted paths
     # (e.g. ~/.local/bin/claude installed via pipx/npm)
-    binary = cmd[0]
+    binary = original_binary
     if os.path.isabs(binary):
         for p in dict.fromkeys(
             [binary, os.path.realpath(binary)]

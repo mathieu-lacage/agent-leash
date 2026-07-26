@@ -33,6 +33,10 @@ class DomainGatekeeper:
         if domain in ("localhost", "127.0.0.1", "::1"):
             return
 
+        ctx.log.info(
+            f"[{self.sandbox_id}] {flow.request.method} {flow.request.pretty_url}"
+        )
+
         try:
             async with httpx.AsyncClient(timeout=70.0) as client:
                 r = await client.post(
