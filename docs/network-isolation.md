@@ -31,8 +31,8 @@ The agent has no access to the host network stack except through two host-side p
 │  _tun_gateway.py (asyncio)                           │
 │    reads/writes raw IP packets on the TUN fd          │
 │    – TCP :80/:443 direct → RST                       │
-│    – TCP to 169.254.0.1  → 127.0.0.1 (no gate)      │
-│    – TCP other           → approval gate → proxy     │
+│    – TCP to 169.254.0.1  → 127.0.0.1 (no gate)*     │
+│    – TCP other           → approval gate → forward   │
 │    – UDP/53              → host DNS (no gate)         │
 │    – UDP :80/:443        → drop (QUIC)               │
 │    – UDP to 169.254.0.1  → 127.0.0.1 (no gate)      │
@@ -46,6 +46,8 @@ The agent has no access to the host network stack except through two host-side p
 │    WebSocket + notify-send → user approves/blocks    │
 └──────────────────────────────────────────────────────┘
 ```
+
+\* Exception: TCP to `169.254.0.1:53` is forwarded to the host DNS resolver, not `127.0.0.1`.
 
 ## Address mapping
 
@@ -65,7 +67,7 @@ The gateway maps it to `127.0.0.1` on the host for any connection that reaches i
 | DNS (UDP/53) | TUN → gateway → host DNS (8.8.8.8 or systemd-resolved) | no |
 | UDP port 80/443 | dropped by gateway | blocked (QUIC) |
 | UDP other | TUN → gateway → approval → forwarded | yes, per host:port |
-| TCP/UDP to 169.254.0.1 | TUN → gateway → 127.0.0.1 (no gate) | no |
+| TCP/UDP to 169.254.0.1 | TUN → gateway → 127.0.0.1 (no gate); TCP :53 → host DNS | no |
 
 The key difference from proxy-env-var approaches: the gateway intercepts at Layer 3, so programs that ignore `http_proxy` / `ALL_PROXY` (Go binaries, native DNS resolvers, anything using raw sockets) are gated the same way as proxy-aware clients.
 
@@ -99,4 +101,4 @@ mitmproxy uses the same endpoint for HTTP/HTTPS, keyed by domain name rather tha
 
 ## DNS
 
-`/etc/resolv.conf` inside the sandbox is overridden at bwrap startup with `nameserver 169.254.0.1` (using `--ro-bind-data` to handle Fedora's symlink to `/run/systemd/resolve/stub-resolv.conf`). The gateway forwards all UDP/53 to the host's upstream resolver, detected from `/run/systemd/resolve/resolv.conf` before namespace entry (falling back to `127.0.0.53`). DNS is not gated; only actual connections are subject to approval.
+`/etc/resolv.conf` inside the sandbox is overridden at bwrap startup with `nameserver 169.254.0.1` (using `--ro-bind-data` to handle Fedora's symlink to `/run/systemd/resolve/stub-resolv.conf`). The gateway forwards all UDP/53 to the host's upstream resolver, detected from `/run/systemd/resolve/resolv.conf` before namespace entry; if that file is absent, falls back to the first non-stub `nameserver` in the realpath of `/etc/resolv.conf`; final fallback is `127.0.0.53`. DNS is not gated; only actual connections are subject to approval.
