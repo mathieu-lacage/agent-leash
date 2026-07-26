@@ -359,6 +359,11 @@ def _setup_tun(child_pid: int) -> int:
 
             _configure_iface("aleash0", _SANDBOX_ADDR, 30)
 
+            # Allow any port to be bound by unprivileged processes inside the sandbox.
+            # This sysctl is net-namespace-scoped; only this sandbox is affected.
+            with open("/proc/sys/net/ipv4/ip_unprivileged_port_start", "w") as _f:
+                _f.write("0\n")
+
             _send_fd(child_s, tfd)
         except Exception as exc:
             print(f"aleash gateway: TUN setup failed: {exc}", file=sys.stderr)
