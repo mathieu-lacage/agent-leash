@@ -96,6 +96,7 @@ def _run_agent(
     extra_args: tuple,
     profile_override: str | None,
     browser_master: bool = False,
+    forward_stdin: bool = False,
 ):
     from .profiles import PROFILES
     from .runner import run_sandbox
@@ -135,6 +136,7 @@ def _run_agent(
                 cmd=[binary, *extra_args],
                 browser_master=browser_master,
                 server_url=f"http://localhost:{port}",
+                forward_stdin=forward_stdin,
             )
         )
     finally:
@@ -145,30 +147,44 @@ def _run_agent(
 @main.command(
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True}
 )
+@click.option(
+    "--forward-stdin",
+    is_flag=True,
+    default=False,
+    help="Forward host stdin to the sandbox (e.g. for piping data in).",
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
-def claude(ctx, extra_args):
+def claude(ctx, forward_stdin, extra_args):
     """Run claude in a sandbox."""
     _run_agent(
         "claude",
         extra_args,
         ctx.obj.get("profile"),
         ctx.obj.get("browser_master", False),
+        forward_stdin=forward_stdin,
     )
 
 
 @main.command(
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True}
 )
+@click.option(
+    "--forward-stdin",
+    is_flag=True,
+    default=False,
+    help="Forward host stdin to the sandbox (e.g. for piping data in).",
+)
 @click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
-def opencode(ctx, extra_args):
+def opencode(ctx, forward_stdin, extra_args):
     """Run opencode in a sandbox."""
     _run_agent(
         "opencode",
         extra_args,
         ctx.obj.get("profile"),
         ctx.obj.get("browser_master", False),
+        forward_stdin=forward_stdin,
     )
 
 
