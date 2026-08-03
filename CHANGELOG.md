@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0 - 2026-08-XX
+
+### Fixed
+
+- Make sure we can write in a git submodule even if the parent is not accessible: [#1](https://github.com/mathieu-lacage/agent-leash/issues/1)
+
 ## 0.13.0 - 2026-07-23
 
 ### Fixed

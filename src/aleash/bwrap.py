@@ -171,14 +171,15 @@ def build_bwrap_argv(
     # working directory (writable)
     content.append(("--bind", cwd, cwd))
 
-    # If cwd is a git submodule/worktree, .git is a gitfile pointing outside cwd
+    # If cwd is a git submodule, .git is a gitfile pointing outside cwd at the
+    # submodule's own (self-contained) git dir — needs to be writable for commits.
     _git_entry = Path(cwd) / ".git"
     if _git_entry.is_file():
         _git_text = _git_entry.read_text().strip()
         if _git_text.startswith("gitdir:"):
             _real_git = (Path(cwd) / _git_text[len("gitdir:") :].strip()).resolve()
             if _real_git.exists():
-                content.append(("--ro-bind", str(_real_git), str(_real_git)))
+                content.append(("--bind", str(_real_git), str(_real_git)))
 
     # profile extra binds
     for host, dest in profile.extra_binds:
